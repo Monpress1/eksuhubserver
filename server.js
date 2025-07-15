@@ -329,8 +329,8 @@ function setupWebSocketListeners() {
                         const clientPersistentId = parsedMessage.payload.persistentUserId;
                         if (!clientPersistentId) {
                             console.error(`Client (Session ID: ${currentSessionId}) sent initialUserData without persistentUserId.`);
-                            sendToClient(ws, 'systemMessage', { text: 'Authentication error: Missing user ID.' });
-                            ws.close(); // Close connection due to invalid data
+                            // REMOVED: sendToClient(ws, 'systemMessage', { text: 'Authentication error: Missing user ID.' });
+                            ws.close(); // Close connection due to invalid data (still good to close)
                             return;
                         }
 
@@ -383,7 +383,7 @@ function setupWebSocketListeners() {
                         db.all("SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC", [lastFetchTimestamp], (err, newMsgRows) => {
                             if (err) {
                                 console.error('Error loading new messages from SQLite for client:', err.message);
-                                sendToClient(ws, 'systemMessage', { text: 'Error fetching messages.' });
+                                // REMOVED: sendToClient(ws, 'systemMessage', { text: 'Error fetching messages.' });
                                 return;
                             }
 
@@ -413,7 +413,7 @@ function setupWebSocketListeners() {
                         // If the sender is blocked (by their persistent ID), ignore their message.
                         if (!currentClientInfo.persistentUserId || blockedUsers.has(currentClientInfo.persistentUserId)) {
                             console.log(`User (Persistent ID: ${currentClientInfo.persistentUserId}) is blocked or not identified. Message ignored.`);
-                            sendToClient(ws, 'systemMessage', { text: 'You are currently blocked from sending messages or not fully identified.' });
+                            // REMOVED: sendToClient(ws, 'systemMessage', { text: 'You are currently blocked from sending messages or not fully identified.' });
                             return;
                         }
 
@@ -475,11 +475,11 @@ function setupWebSocketListeners() {
                         // For now, any password will grant admin access.
                         if (currentClientInfo.type === 'adminpass') { // Simple password check
                             currentClientInfo.type = 'admin'; // Update the client's type in the map
-                            sendToClient(ws, 'systemMessage', { text: 'Logged in as Admin.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Logged in as Admin.' }); // Keep this for admin UI
                             sendAdminUpdate(ws); // Send adminData to THIS admin client immediately
                             console.log(`Client (Session ID: ${currentSessionId}) type changed to Admin.`);
                         } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Admin login failed.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Admin login failed.' }); // Keep this for admin UI
                         }
                         break;
 
@@ -488,7 +488,7 @@ function setupWebSocketListeners() {
                             sendAdminUpdate(ws); // Send current admin data to the requesting admin client
                             console.log(`Admin (Session ID: ${currentSessionId}) requested data refresh.`);
                         } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Permission denied for data refresh.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Permission denied for data refresh.' }); // Keep this for admin UI
                         }
                         break;
 
@@ -544,11 +544,11 @@ function setupWebSocketListeners() {
 
                                 // Broadcast to all chat clients
                                 broadcastToChatClients('systemAnnouncement', { text: announcementText });
-                                sendToClient(ws, 'systemMessage', { text: 'Announcement sent.' });
+                                sendToClient(ws, 'systemMessage', { text: 'Announcement sent.' }); // Keep this for admin UI
                                 sendAdminUpdate(); // Update admin dashboard
                             }
                         } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Permission denied for broadcasting.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Permission denied for broadcasting.' }); // Keep this for admin UI
                         }
                         break;
 
@@ -577,14 +577,14 @@ function setupWebSocketListeners() {
                                     sendAdminUpdate(); // Update all admin dashboards
                                     console.log(`Admin (Session ID: ${currentSessionId}) deleted message ID: ${messageIdToDelete}`);
                                 } else {
-                                    sendToClient(ws, 'systemMessage', { text: `Message ID ${messageIdToDelete} not found.` });
+                                    sendToClient(ws, 'systemMessage', { text: `Message ID ${messageIdToDelete} not found.` }); // Keep this for admin UI
                                 }
                             }).catch(err => {
                                 console.error(`Error deleting message from DB (catch block):`, err.message);
-                                sendToClient(ws, 'systemMessage', { text: 'Error deleting message.' });
+                                sendToClient(ws, 'systemMessage', { text: 'Error deleting message.' }); // Keep this for admin UI
                             });
                         } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Permission denied.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Permission denied.' }); // Keep this for admin UI
                         }
                         break;
 
@@ -615,15 +615,15 @@ function setupWebSocketListeners() {
                                     });
                                     console.log(`User (Persistent ID: ${userIdToBlock}) blocked and saved to DB.`);
                                 }
-                                sendToClient(ws, 'systemMessage', { text: `User ${userIdToBlock} blocked.` });
+                                sendToClient(ws, 'systemMessage', { text: `User ${userIdToBlock} blocked.` }); // Keep this for admin UI
                                 broadcastToChatClients('systemMessage', { text: `User ${userIdToBlock.substring(0,8)}... has been blocked by an admin.` });
                                 sendAdminUpdate(); // Update all admin dashboards
                                 console.log(`Admin (Session ID: ${currentSessionId}) blocked user (Persistent ID: ${userIdToBlock}).`);
                             } else {
-                                sendToClient(ws, 'systemMessage', { text: `User ID ${userIdToBlock} not found.` });
+                                sendToClient(ws, 'systemMessage', { text: `User ID ${userIdToBlock} not found.` }); // Keep this for admin UI
                             }
                         } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Permission denied.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Permission denied.' }); // Keep this for admin UI
                         }
                         break;
 
@@ -643,22 +643,22 @@ function setupWebSocketListeners() {
                                 });
                                 console.log(`User (Persistent ID: ${userIdToUnblock}) unblocked and removed from DB.`);
                             }
-                            sendToClient(ws, 'systemMessage', { text: `User ${userIdToUnblock} unblocked.` });
+                            sendToClient(ws, 'systemMessage', { text: `User ${userIdToUnblock} unblocked.` }); // Keep this for admin UI
                             broadcastToChatClients('systemMessage', { text: `User ${userIdToUnblock.substring(0,8)}... has been unblocked by an admin.` });
                             sendAdminUpdate(); // Update all admin dashboards
                             console.log(`Admin (Session ID: ${currentSessionId}) unblocked user (Persistent ID: ${userIdToUnblock}).`);
                         } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Permission denied.' });
+                            sendToClient(ws, 'systemMessage', { text: 'Permission denied.' }); // Keep this for admin UI
                         }
                         break;
 
                     default:
                         console.warn(`Unknown message type: ${parsedMessage.type}`);
-                        sendToClient(ws, 'systemMessage', { text: 'Unknown command.' });
+                        // REMOVED: sendToClient(ws, 'systemMessage', { text: 'Unknown command.' });
                 }
             } catch (e) {
                 console.error('Failed to parse message or handle:', e);
-                sendToClient(ws, 'systemMessage', { text: 'Error processing message.' });
+                // REMOVED: sendToClient(ws, 'systemMessage', { text: 'Error processing message.' });
             }
         });
 
