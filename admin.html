@@ -101,13 +101,25 @@
         .unblock-btn:hover {
             background-color: #16a34a; /* Green-600 */
         }
-        .refresh-btn, .send-announcement-btn, .search-btn {
+        .refresh-btn, .send-announcement-btn, .clear-chat-btn { /* Added clear-chat-btn */
             background-color: #60a5fa; /* Blue-400 */
             color: white;
             border: none;
         }
-        .refresh-btn:hover, .send-announcement-btn:hover, .search-btn:hover {
+        .refresh-btn:hover, .send-announcement-btn:hover {
             background-color: #3b82f6; /* Blue-500 */
+        }
+        .clear-chat-btn { /* Specific style for clear chat */
+            background-color: #ef4444; /* Red-500 */
+            color: white;
+            font-weight: bold;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .clear-chat-btn:hover {
+            background-color: #dc2626; /* Red-600 */
         }
         .login-section {
             display: flex;
@@ -188,18 +200,17 @@
             align-items: center;
             z-index: 1000;
         }
-        .profile-modal-content {
+        .modal-content { /* Generic modal content style */
             background-color: #ffffff;
             padding: 30px;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
             width: 90%;
-            max-width: 350px;
+            max-width: 400px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            text-align: center;
-            position: relative; /* For close button positioning */
+            gap: 15px;
+            position: relative;
         }
         .profile-modal-content h3 {
             font-size: 1.8rem;
@@ -211,7 +222,7 @@
             font-size: 1.1rem;
             color: #4b5563;
         }
-        .profile-modal-content .close-button {
+        .modal-content .close-button {
             position: absolute;
             top: 10px;
             right: 15px;
@@ -221,8 +232,37 @@
             border: none;
             color: #6b7280;
         }
-        .profile-modal-content .close-button:hover {
+        .modal-content .close-button:hover {
             color: #1f2937;
+        }
+        .modal-buttons {
+            display: flex;
+            justify-content: space-around;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .modal-buttons button {
+            flex: 1;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            border: none;
+        }
+        .modal-buttons .confirm-btn {
+            background-color: #ef4444; /* Red-500 */
+            color: white;
+        }
+        .modal-buttons .confirm-btn:hover {
+            background-color: #dc2626; /* Red-600 */
+        }
+        .modal-buttons .cancel-btn {
+            background-color: #d1d5db; /* Gray-300 */
+            color: #1f2937;
+        }
+        .modal-buttons .cancel-btn:hover {
+            background-color: #9ca3af; /* Gray-400 */
         }
     </style>
 </head>
@@ -246,6 +286,12 @@
                 <input type="text" id="announcementInput" class="flex-grow p-2 border rounded-md" placeholder="Type announcement message...">
                 <button id="sendAnnouncementButton" class="send-announcement-btn action-button">Send</button>
             </div>
+        </div>
+
+        <div class="section">
+            <h2>Clear Chat History</h2>
+            <p class="text-gray-600 text-sm mb-3">This action will permanently delete all chat messages from the database.</p>
+            <button id="clearChatHistoryButton" class="clear-chat-btn">Clear All Messages</button>
         </div>
 
         <div class="section">
@@ -276,11 +322,24 @@
 
     <!-- User Profile Display Modal (for admin to view user profiles) -->
     <div id="userProfileDisplayModal" class="modal-overlay hidden">
-        <div class="profile-modal-content relative">
+        <div class="modal-content profile-modal-content relative">
             <button class="close-button" id="closeUserProfileModal">&times;</button>
             <h3 id="displayNickname"></h3>
             <p><span class="font-semibold">Interest:</span> <span id="displayInterest"></span></p>
             <p><span class="font-semibold">Gender:</span> <span id="displayGender"></span></p>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal for Clear Chat -->
+    <div id="clearChatConfirmModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2 class="text-xl font-bold text-red-600">Confirm Clear Chat</h2>
+            <p class="text-center text-gray-700">Are you sure you want to permanently delete ALL chat messages?</p>
+            <p class="text-center text-red-500 font-semibold">This action cannot be undone!</p>
+            <div class="modal-buttons">
+                <button id="confirmClearChatButton" class="confirm-btn">Yes, Clear Chat</button>
+                <button id="cancelClearChatButton" class="cancel-btn">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -309,15 +368,25 @@
         const displayInterest = document.getElementById('displayInterest');
         const displayGender = document.getElementById('displayGender');
 
-        let ws; // Declare WebSocket globally to be accessible after login
-        let allUsers = []; // Store all users received from server for client-side search
-        let allMessages = []; // Store all messages received from server for client-side search
-        let currentSearchMode = 'users'; // 'users' or 'messages'
+        // Clear Chat elements
+        const clearChatHistoryButton = document.getElementById('clearChatHistoryButton');
+        const clearChatConfirmModal = document.getElementById('clearChatConfirmModal');
+        const confirmClearChatButton = document.getElementById('confirmClearChatButton');
+        const cancelClearChatButton = document.getElementById('cancelClearChatButton');
+
+
+        let ws;
+        let allUsers = [];
+        let allMessages = [];
+        let currentSearchMode = 'users';
 
         const LOCAL_STORAGE_KEY = 'adminLoggedIn';
-        const LOGIN_EXPIRATION_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+        const LOGIN_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 
-        // --- Initial Load Check for Persistent Login ---
+        // --- IMPORTANT: YOUR DEPLOYED RAILWAY.APP URL ---
+        const WEBSOCKET_SERVER_URL = 'wss://eksuhubserver-production.up.railway.app';
+        // -----------------------------------------------------------------
+
         document.addEventListener('DOMContentLoaded', () => {
             const storedLogin = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (storedLogin) {
@@ -328,24 +397,21 @@
                         console.log('Attempting auto-login based on localStorage...');
                         loginPanel.classList.add('hidden');
                         dashboardPanel.classList.remove('hidden');
-                        connectWebSocket('adminpass'); // Re-connect with password to re-authenticate
+                        connectWebSocket('adminpass');
                         return;
                     } else {
                         console.log('Stored login expired.');
-                        localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear expired login
+                        localStorage.removeItem(LOCAL_STORAGE_KEY);
                     }
                 } catch (e) {
                     console.error('Error parsing stored login:', e);
                     localStorage.removeItem(LOCAL_STORAGE_KEY);
                 }
             }
-            // If no valid stored login, show the login panel
             loginPanel.classList.remove('hidden');
             dashboardPanel.classList.add('hidden');
         });
 
-
-        // --- Admin Login Logic ---
         loginButton.addEventListener('click', () => {
             const password = adminPasswordInput.value;
             if (password) {
@@ -356,16 +422,14 @@
         });
 
         function connectWebSocket(password) {
-            // Close existing connection if any
             if (ws && ws.readyState === ws.OPEN) {
                 ws.close();
             }
 
-            ws = new WebSocket('ws://localhost:8080');
+            ws = new WebSocket(WEBSOCKET_SERVER_URL); // Use the Railway URL here
 
             ws.onopen = () => {
                 console.log('Admin connected to WebSocket server');
-                // Send an adminLogin message with the password
                 ws.send(JSON.stringify({
                     type: 'adminLogin',
                     payload: { password: password }
@@ -382,22 +446,19 @@
                             if (data.payload.text === 'Logged in as Admin.') {
                                 loginPanel.classList.add('hidden');
                                 dashboardPanel.classList.remove('hidden');
-                                loginStatus.textContent = ''; // Clear any previous login errors
-                                // Store login timestamp in localStorage
+                                loginStatus.textContent = '';
                                 localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ timestamp: Date.now() }));
                             } else if (data.payload.text === 'Admin login failed.') {
                                 loginStatus.textContent = 'Login failed. Incorrect password.';
-                                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear any invalid stored login
+                                localStorage.removeItem(LOCAL_STORAGE_KEY);
                             } else {
                                 console.log('System message:', data.payload.text);
                             }
                             break;
                         case 'adminData':
-                            // Store all data for client-side search
                             allUsers = data.payload.users;
                             allMessages = data.payload.messages;
-                            // Render based on current search filter
-                            applySearchFilter();
+                            applySearchFilter(); // Render based on current search filter
                             break;
                         default:
                             console.warn('Unknown message type received by admin:', data.type);
@@ -412,21 +473,19 @@
                 loginPanel.classList.remove('hidden');
                 dashboardPanel.classList.add('hidden');
                 loginStatus.textContent = 'Disconnected from server. Please log in again.';
-                ws = null; // Clear WebSocket instance
-                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear login on disconnect
+                ws = null;
+                localStorage.removeItem(LOCAL_STORAGE_KEY);
             };
 
             ws.onerror = (error) => {
                 console.error('Admin WebSocket error:', error);
                 loginStatus.textContent = 'Connection error. Is server running?';
-                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear login on error
+                localStorage.removeItem(LOCAL_STORAGE_KEY);
             };
         }
 
-        // --- Render Functions ---
-
         function renderUsers(usersToRender) {
-            usersListDiv.innerHTML = ''; // Clear current list
+            usersListDiv.innerHTML = '';
             if (usersToRender.length === 0) {
                 usersListDiv.innerHTML = '<p class="text-gray-500">No users found.</p>';
                 return;
@@ -451,11 +510,9 @@
                 `;
                 usersListDiv.appendChild(userItem);
 
-                // Add event listeners for block/unblock buttons
                 const blockUnblockBtn = userItem.querySelector('.action-button');
                 if (blockUnblockBtn) {
                     blockUnblockBtn.addEventListener('click', (e) => {
-                        // Get the persistent user ID from the data attribute
                         const persistentUserId = e.target.dataset.persistentUserId;
                         if (!persistentUserId || persistentUserId === 'N/A') {
                             console.error('Attempted to block/unblock user with invalid persistent ID.');
@@ -463,9 +520,9 @@
                         }
 
                         if (e.target.classList.contains('block-btn')) {
-                            sendAdminCommand('blockUser', { userId: persistentUserId }); // Send persistent ID
+                            sendAdminCommand('blockUser', { userId: persistentUserId });
                         } else if (e.target.classList.contains('unblock-btn')) {
-                            sendAdminCommand('unblockUser', { userId: persistentUserId }); // Send persistent ID
+                            sendAdminCommand('unblockUser', { userId: persistentUserId });
                         }
                     });
                 }
@@ -473,7 +530,7 @@
         }
 
         function renderMessages(messagesToRender) {
-            messagesListDiv.innerHTML = ''; // Clear current list
+            messagesListDiv.innerHTML = '';
             if (messagesToRender.length === 0) {
                 messagesListDiv.innerHTML = '<p class="text-gray-500">No messages found.</p>';
                 return;
@@ -482,44 +539,53 @@
                 const messageItem = document.createElement('div');
                 messageItem.classList.add('message-item', 'flex', 'items-center', 'py-2', 'border-b', 'border-gray-200');
                 
-                // Content for the message
-                let messageContentHtml = `
-                    <div class="message-content">
+                let messageContentHtml = `<div class="message-content flex-grow">`;
+
+                if (msg.messageType === 'systemAnnouncement') {
+                    messageContentHtml += `
+                        <span class="font-semibold text-red-700">ADMIN ANNOUNCEMENT: </span>
+                        <span>${escapeHTML(msg.text)}</span>
+                    `;
+                } else if (msg.messageType === 'userStatusUpdate') {
+                    messageContentHtml += `
+                        <span class="font-semibold text-gray-700">SYSTEM: </span>
+                        <span>${escapeHTML(msg.nickname)} has ${escapeHTML(msg.status)} the chat.</span>
+                    `;
+                } else { // Default to chatMessage
+                    messageContentHtml += `
                         <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(msg.senderProfile || {})}' data-sender-id="${msg.senderPersistentId}">
                             ${msg.senderNickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`}:
                         </span>
-                `;
-
-                if (msg.text) {
-                    messageContentHtml += `<span>${escapeHTML(msg.text)}</span>`;
-                }
-                if (msg.image) {
-                    messageContentHtml += `<img src="${msg.image}" class="message-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/150x100/A0A0A0/FFFFFF?text=Image+Load+Error';">`;
-                    // If there's text accompanying the image, display it below the image
-                    if (msg.text) { 
-                        messageContentHtml += `<span class="block text-sm text-gray-600 mt-1">${escapeHTML(msg.text)}</span>`;
+                    `;
+                    if (msg.text) {
+                        messageContentHtml += `<span>${escapeHTML(msg.text)}</span>`;
+                    }
+                    if (msg.image) {
+                        messageContentHtml += `<img src="${msg.image}" class="message-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/150x100/A0A0A0/FFFFFF?text=Image+Load+Error';">`;
+                        if (msg.text) {
+                            messageContentHtml += `<span class="block text-sm text-gray-600 mt-1">${escapeHTML(msg.text)}</span>`;
+                        }
                     }
                 }
+                
                 messageContentHtml += `
-                        <span class="text-xs text-gray-500 ml-2">(${new Date(msg.timestamp).toLocaleTimeString()})</span>
-                    </div>
-                    <div>
-                        <button class="delete-btn action-button" data-message-id="${msg.id}">Delete</button>
-                    </div>
+                    <span class="text-xs text-gray-500 ml-2">(${new Date(msg.timestamp).toLocaleTimeString()})</span>
+                </div>
+                <div>
+                    <button class="delete-btn action-button" data-message-id="${msg.id}">Delete</button>
+                </div>
                 `;
                 messageItem.innerHTML = messageContentHtml;
                 messagesListDiv.appendChild(messageItem);
 
-                // Add event listener for delete button
                 const deleteBtn = messageItem.querySelector('.delete-btn');
                 if (deleteBtn) {
                     deleteBtn.addEventListener('click', (e) => {
-                        const messageId = parseInt(e.target.dataset.messageId);
+                        const messageId = e.target.dataset.messageId;
                         sendAdminCommand('deleteMessage', { messageId: messageId });
                     });
                 }
 
-                // Add click listener to sender's nickname to show profile
                 const senderNicknameSpan = messageItem.querySelector('.message-content .font-semibold.cursor-pointer');
                 if (senderNicknameSpan) {
                     senderNicknameSpan.addEventListener('click', (e) => {
@@ -532,10 +598,8 @@
                     });
                 }
             });
-            messagesListDiv.scrollTop = messagesListDiv.scrollHeight; // Scroll to bottom
+            messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
         }
-
-        // --- Admin Command Sender ---
 
         function sendAdminCommand(type, payload) {
             if (ws && ws.readyState === ws.OPEN) {
@@ -545,12 +609,17 @@
             }
         }
 
-        // --- Event Listeners for new features ---
         refreshDataButton.addEventListener('click', () => {
             if (ws && ws.readyState === ws.OPEN) {
-                sendAdminCommand('requestAdminData', {}); // Send a request to the server for fresh data
+                sendAdminCommand('requestAdminData', {});
             } else {
                 loginStatus.textContent = 'Not connected to server. Please log in.';
+            }
+        });
+
+        announcementInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendAnnouncementButton.click();
             }
         });
 
@@ -558,11 +627,26 @@
             const announcementText = announcementInput.value.trim();
             if (announcementText) {
                 sendAdminCommand('adminBroadcast', { text: announcementText });
-                announcementInput.value = ''; // Clear input
+                announcementInput.value = '';
             } else {
                 alert('Please enter an announcement message.');
             }
         });
+
+        // Clear Chat History Logic
+        clearChatHistoryButton.addEventListener('click', () => {
+            clearChatConfirmModal.classList.remove('hidden'); // Show confirmation modal
+        });
+
+        confirmClearChatButton.addEventListener('click', () => {
+            sendAdminCommand('clearChatHistory', {}); // Send command to server
+            clearChatConfirmModal.classList.add('hidden'); // Hide modal
+        });
+
+        cancelClearChatButton.addEventListener('click', () => {
+            clearChatConfirmModal.classList.add('hidden'); // Hide modal
+        });
+
 
         searchUsersButton.addEventListener('click', () => {
             currentSearchMode = 'users';
@@ -587,20 +671,20 @@
                 const filteredUsers = allUsers.filter(user =>
                     user.nickname.toLowerCase().includes(query) ||
                     (user.persistentUserId && user.persistentUserId.toLowerCase().includes(query)) ||
-                    (user.id && user.id.toString().includes(query)) // Also allow searching by session ID
+                    (user.id && user.id.toString().includes(query))
                 );
                 renderUsers(filteredUsers);
             } else { // currentSearchMode === 'messages'
                 const filteredMessages = allMessages.filter(msg =>
                     (msg.text && msg.text.toLowerCase().includes(query)) ||
                     (msg.senderNickname && msg.senderNickname.toLowerCase().includes(query)) ||
-                    (msg.senderPersistentId && msg.senderPersistentId.toLowerCase().includes(query))
+                    (msg.senderPersistentId && msg.senderPersistentId.toLowerCase().includes(query)) ||
+                    (msg.nickname && msg.nickname.toLowerCase().includes(query)) // For userStatusUpdate
                 );
                 renderMessages(filteredMessages);
             }
         }
 
-        // --- User Profile Display Modal Functions ---
         closeUserProfileModalButton.addEventListener('click', () => {
             userProfileDisplayModal.classList.add('hidden');
         });
