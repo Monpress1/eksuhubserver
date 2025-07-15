@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f2f5;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .chat-container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px; /* Max width for desktop */
+            display: flex;
+            flex-direction: column;
+            height: 85vh; /* Adjusted for better mobile fit, still flexible */
+            overflow: hidden;
+        }
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 95vh; /* Take more height on small screens */
+                max-width: 100%; /* Ensure full width */
+                margin: 0; /* Remove any side margins */
+            }
+            body {
+                padding: 10px; /* Reduce overall padding on mobile */
+            }
+        }
+        .chat-header {
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+            padding: 1rem;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            text-align: center;
+        }
+        .messages-area {
+            flex-grow: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background-color: #eef2ff; /* Indigo-50 */
+        }
+        .message-bubble {
+            max-width: 80%;
+            padding: 0.75rem 1rem;
+            border-radius: 18px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .message-bubble.sent {
+            align-self: flex-end;
+            background-color: #6366f1; /* Indigo-500 */
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .message-bubble.received {
+            align-self: flex-start;
+            background-color: #ffffff;
+            color: #374151; /* Gray-700 */
+            border-bottom-left-radius: 4px;
+        }
+        .message-bubble.announcement { /* NEW STYLE */
+            align-self: center; /* Center the announcement */
+            color: grey;
+            text-align: center;
+            font-weight: bold;
+            padding: 0.75rem 1.5rem;
+            border-radius: 20px;
+            max-width: 90%; /* Allow it to be wider */
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        .message-input-area {
+            display: flex;
+            padding: 1rem;
+            border-top: 1px solid #e2e8f0;
+            background-color: #ffffff;
+            gap: 10px;
+        }
+        .message-input {
+            flex-grow: 1;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 1rem;
+            resize: none; /* Prevent manual resizing */
+            overflow-y: hidden; /* Hide scrollbar initially */
+        }
+        .send-button, .upload-button {
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0; /* Prevent shrinking */
+        }
+        .send-button:hover, .upload-button:hover {
+            background-color: #4338ca; /* Indigo-700 */
+            transform: translateY(-1px);
+        }
+        .send-button:active, .upload-button:active {
+            transform: scale(0.98);
+        }
+        .upload-button input[type="file"] {
+            display: none;
+        }
+        .chat-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin-top: 5px;
+            display: block;
+        }
+        /* Profile Pop-up Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .profile-modal-content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-align: center;
+            position: relative; /* For close button positioning */
+        }
+        .profile-modal-content h3 {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 10px;
+        }
+        .profile-modal-content p {
+            font-size: 1.1rem;
+            color: #4b5563;
+        }
+        .profile-modal-content .close-button {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            color: #6b7280;
+        }
+        .profile-modal-content .close-button:hover {
+            color: #1f2937;
+        }
+
+        /* Signup Modal */
+        .signup-modal-content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .signup-modal-content h2 {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #1f2937;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .signup-modal-content input,
+        .signup-modal-content select {
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        .signup-modal-content button {
+            background-color: #4f46e5;
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        .signup-modal-content button:hover {
+            background-color: #4338ca;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="chat-container">
+        <div class="chat-header">
+            WebSocket Chat
+        </div>
+        <div id="messagesContainer" class="messages-area">
+            <!-- Messages will be displayed here -->
+        </div>
+        <div class="message-input-area">
+            <input type="text" id="messageInput" class="message-input" placeholder="Type your message...">
+            <label for="imageUpload" class="upload-button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+                    <path fill-rule="evenodd" d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.69a1.5 1.5 0 0 0-2.12 0L9.47 16.06a2.25 2.25 0 0 1-3.18 0l-2.7-2.7Z" clip-rule="evenodd" />
+                    <path fill-rule="evenodd" d="M12.97 3.97a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H9.75a.75.75 0 0 1 0-1.5h5.69l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                </svg>
+                <input type="file" id="imageUpload" accept="image/*">
+            </label>
+            <button id="sendButton" class="send-button">Send</button>
+        </div>
+    </div>
+
+    <!-- User Profile Display Modal -->
+    <div id="userProfileDisplayModal" class="modal-overlay hidden">
+        <div class="profile-modal-content relative">
+            <button class="close-button" id="closeUserProfileModal">&times;</button>
+            <h3 id="displayNickname"></h3>
+            <p><span class="font-semibold">Interest:</span> <span id="displayInterest"></span></p>
+            <p><span class="font-semibold">Gender:</span> <span id="displayGender"></span></p>
+        </div>
+    </div>
+
+    <!-- User Signup Modal -->
+    <div id="signupModal" class="modal-overlay hidden">
+        <div class="signup-modal-content">
+            <h2>Welcome!</h2>
+            <p class="text-center text-gray-600">Please tell us about yourself to join the chat.</p>
+            <input type="text" id="signupNickname" placeholder="Nickname" required>
+            <input type="text" id="signupInterest" placeholder="Your Interest (e.g., coding, art, gaming)">
+            <select id="signupGender" class="p-2 border rounded" required>
+                <option value="">Select Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Non-binary">Non-binary</option>
+                <option value="Prefer not to say">Prefer not to say</option>
+            </select>
+            <button id="signupButton">Join Chat</button>
+        </div>
+    </div>
+
+    <script>
+        const messagesContainer = document.getElementById('messagesContainer');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const imageUpload = document.getElementById('imageUpload');
+
+        // Signup modal elements
+        const signupModal = document.getElementById('signupModal');
+        const signupNicknameInput = document.getElementById('signupNickname');
+        const signupInterestInput = document.getElementById('signupInterest');
+        const signupGenderSelect = document.getElementById('signupGender');
+        const signupButton = document.getElementById('signupButton');
+
+        // Profile display modal elements
+        const userProfileDisplayModal = document.getElementById('userProfileDisplayModal');
+        const closeUserProfileModalButton = document.getElementById('closeUserProfileModal');
+        const displayNickname = document.getElementById('displayNickname');
+        const displayInterest = document.getElementById('displayInterest');
+        const displayGender = document.getElementById('displayGender');
+
+        let ws;
+        let persistentUserId = localStorage.getItem('chatPersistentUserId'); // This is the stable ID
+        let userProfile = JSON.parse(localStorage.getItem('chatUserProfile')) || {};
+
+        // If no persistent user ID, generate one
+        if (!persistentUserId) {
+            persistentUserId = crypto.randomUUID(); // Generate a unique ID
+            localStorage.setItem('chatPersistentUserId', persistentUserId);
+            console.log('Generated new persistent user ID:', persistentUserId);
+        } else {
+            console.log('Found existing persistent user ID:', persistentUserId);
+        }
+
+        // Show signup modal if profile is incomplete
+        if (!userProfile.nickname || !userProfile.gender) {
+            signupModal.classList.remove('hidden');
+        } else {
+            connectWebSocket();
+        }
+
+        signupButton.addEventListener('click', () => {
+            const nickname = signupNicknameInput.value.trim();
+            const interest = signupInterestInput.value.trim();
+            const gender = signupGenderSelect.value;
+
+            if (nickname && gender) {
+                userProfile = { nickname, interest, gender };
+                localStorage.setItem('chatUserProfile', JSON.stringify(userProfile));
+                signupModal.classList.add('hidden');
+                connectWebSocket();
+            } else {
+                alert('Please enter your nickname and select a gender.');
+            }
+        });
+
+        closeUserProfileModalButton.addEventListener('click', () => {
+            userProfileDisplayModal.classList.add('hidden');
+        });
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8080');
+
+            ws.onopen = () => {
+                console.log('Connected to WebSocket server');
+                // Send initial user data including the persistent ID
+                ws.send(JSON.stringify({
+                    type: 'initialUserData',
+                    payload: {
+                        persistentUserId: persistentUserId, // Send the persistent ID
+                        nickname: userProfile.nickname,
+                        interest: userProfile.interest,
+                        gender: userProfile.gender
+                    }
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('Message from server:', data);
+
+                switch (data.type) {
+                    case 'initialData':
+                        messagesContainer.innerHTML = ''; // Clear existing messages
+                        data.payload.messages.forEach(msg => displayMessage(msg));
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        break;
+                    case 'chatMessage':
+                        displayMessage(data.payload);
+                        break;
+                    case 'systemMessage':
+                        displaySystemMessage(data.payload.text);
+                        break;
+                    case 'systemAnnouncement': // NEW: Handle admin announcements
+                        displaySystemAnnouncement(data.payload.text);
+                        break;
+                    case 'messageDeleted':
+                        removeMessage(data.payload.messageId);
+                        break;
+                    default:
+                        console.warn('Unknown message type:', data.type);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('Disconnected from WebSocket server');
+                // Attempt to reconnect after a delay
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // Prevent new line
+                sendMessage();
+            }
+        });
+        // Auto-resize textarea
+        messageInput.addEventListener('input', () => {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = messageInput.scrollHeight + 'px';
+        });
+
+        imageUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const base64Image = e.target.result; // Base64 string
+                    const messageText = messageInput.value.trim(); // Get any accompanying text
+                    if (ws && ws.readyState === ws.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'chatMessage',
+                            payload: {
+                                text: messageText || null, // Send text or null
+                                image: base64Image,
+                                fileName: file.name
+                            }
+                        }));
+                        messageInput.value = ''; // Clear input
+                        messageInput.style.height = 'auto'; // Reset height
+                        imageUpload.value = ''; // Clear file input
+                    } else {
+                        alert('Not connected to chat server.');
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (text === '') return;
+
+            if (ws && ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'chatMessage',
+                    payload: { text: text }
+                }));
+                messageInput.value = ''; // Clear input
+                messageInput.style.height = 'auto'; // Reset height
+            } else {
+                alert('Not connected to chat server.');
+            }
+        }
+
+        function displayMessage(msg) {
+            const messageElement = document.createElement('div');
+            // Use persistentUserId for 'sent' vs 'received'
+            messageElement.classList.add('message-bubble', msg.senderPersistentId === persistentUserId ? 'sent' : 'received');
+            messageElement.dataset.messageId = msg.id; // Store message ID for deletion
+
+            let messageContent = '';
+            if (msg.image) {
+                messageContent += `<img src="${msg.image}" class="chat-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/100x100/A0A0A0/FFFFFF?text=Image+Load+Error';" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 5px;">`;
+            }
+            if (msg.text) {
+                messageContent += `<p class="text-gray-800">${escapeHTML(msg.text)}</p>`;
+            }
+
+            // Use senderNickname from the message payload
+            const senderNickname = msg.senderNickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`;
+            const timestamp = new Date(msg.timestamp).toLocaleTimeString();
+
+            messageElement.innerHTML = `
+                <div class="flex items-center text-sm text-gray-600 mb-1">
+                    <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(msg.senderProfile || {})}' data-sender-id="${msg.senderPersistentId}">
+                        ${senderNickname}
+                    </span>
+                    <span class="ml-2 text-xs">${timestamp}</span>
+                </div>
+                <div class="message-content-wrapper p-3 rounded-lg">
+                    ${messageContent}
+                </div>
+            `;
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            // Add event listener for profile pop-up
+            const senderNicknameSpan = messageElement.querySelector('.font-semibold.cursor-pointer'); // More specific selector
+            if (senderNicknameSpan) {
+                senderNicknameSpan.addEventListener('click', (e) => {
+                    try {
+                        const profileData = JSON.parse(e.target.dataset.senderProfile);
+                        showUserProfile(profileData);
+                    } catch (error) {
+                        console.error('Error parsing sender profile from data attribute:', error);
+                    }
+                });
+            }
+        }
+
+        function displaySystemMessage(text) {
+            const systemMessageElement = document.createElement('div');
+            systemMessageElement.classList.add('text-center', 'text-gray-500', 'text-sm', 'my-2');
+            systemMessageElement.textContent = text;
+            messagesContainer.appendChild(systemMessageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // NEW: Function to display admin announcements
+        function displaySystemAnnouncement(text) {
+            const announcementElement = document.createElement('div');
+            announcementElement.classList.add('message-bubble', 'announcement', 'my-2'); // Apply new styling
+            announcementElement.textContent = text;
+            messagesContainer.appendChild(announcementElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function removeMessage(messageId) {
+            const messageElement = messagesContainer.querySelector(`[data-message-id="${messageId}"]`);
+            if (messageElement) {
+                messageElement.remove();
+            }
+        }
+
+        function showUserProfile(profile) {
+            displayNickname.textContent = profile.nickname || 'N/A';
+            displayInterest.textContent = profile.interest || 'N/A';
+            displayGender.textContent = profile.gender || 'N/A';
+            userProfileDisplayModal.classList.remove('hidden');
+        }
+
+        function escapeHTML(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

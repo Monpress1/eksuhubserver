@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f2f5;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .dashboard-container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 1000px; /* Wider for dashboard */
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h2 {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1f2937; /* Gray-800 */
+            margin-bottom: 10px;
+        }
+        .section {
+            background-color: #f9fafb;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid #e2e8f0;
+        }
+        .messages-list, .users-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 10px;
+            background-color: #ffffff;
+        }
+        .message-item, .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px dashed #e2e8f0;
+        }
+        .message-item:last-child, .user-item:last-child {
+            border-bottom: none;
+        }
+        .message-content {
+            flex-grow: 1;
+            margin-right: 10px;
+            word-wrap: break-word;
+            cursor: pointer; /* Indicate clickable for profile pop-up */
+        }
+        .action-button {
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background-color 0.2s, transform 0.1s;
+            border: none;
+        }
+        .action-button:hover {
+            transform: translateY(-1px);
+        }
+        .action-button:active {
+            transform: scale(0.98);
+        }
+        .delete-btn {
+            background-color: #ef4444; /* Red-500 */
+            color: white;
+            border: none;
+        }
+        .delete-btn:hover {
+            background-color: #dc2626; /* Red-600 */
+        }
+        .block-btn {
+            background-color: #f97316; /* Orange-500 */
+            color: white;
+            border: none;
+        }
+        .block-btn:hover {
+            background-color: #ea580c; /* Orange-600 */
+        }
+        .unblock-btn {
+            background-color: #22c55e; /* Green-500 */
+            color: white;
+            border: none;
+        }
+        .unblock-btn:hover {
+            background-color: #16a34a; /* Green-600 */
+        }
+        .refresh-btn, .send-announcement-btn, .search-btn {
+            background-color: #60a5fa; /* Blue-400 */
+            color: white;
+            border: none;
+        }
+        .refresh-btn:hover, .send-announcement-btn:hover, .search-btn:hover {
+            background-color: #3b82f6; /* Blue-500 */
+        }
+        .login-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            max-width: 300px;
+            margin: 50px auto;
+        }
+        .login-section input {
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+        }
+        .login-section button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .login-section button:hover {
+            background-color: #2563eb;
+        }
+        .hidden {
+            display: none;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .message-image {
+            max-width: 150px; /* Adjust size for admin view */
+            height: auto;
+            border-radius: 8px;
+            margin-top: 5px;
+            display: block;
+        }
+        .search-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            align-items: center;
+        }
+        .search-controls input {
+            flex-grow: 1;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+        }
+        .search-controls button {
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background-color 0.2s;
+        }
+        .search-controls button.active {
+            background-color: #1d4ed8; /* Darker blue when active */
+        }
+
+        /* Profile Pop-up Modal Specific Styles (copied from index.html) */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .profile-modal-content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-align: center;
+            position: relative; /* For close button positioning */
+        }
+        .profile-modal-content h3 {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 10px;
+        }
+        .profile-modal-content p {
+            font-size: 1.1rem;
+            color: #4b5563;
+        }
+        .profile-modal-content .close-button {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            color: #6b7280;
+        }
+        .profile-modal-content .close-button:hover {
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+    <div id="loginPanel" class="login-section">
+        <h2 class="text-center">Admin Login</h2>
+        <input type="password" id="adminPassword" placeholder="Enter Admin Password">
+        <button id="loginButton">Login</button>
+        <p id="loginStatus" class="text-center text-red-500 text-sm"></p>
+    </div>
+
+    <div id="dashboardPanel" class="dashboard-container hidden">
+        <div class="dashboard-header">
+            <h1 class="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
+            <button id="refreshDataButton" class="refresh-btn action-button">Refresh Data</button>
+        </div>
+
+        <div class="section">
+            <h2>Send Announcement</h2>
+            <div class="flex gap-2">
+                <input type="text" id="announcementInput" class="flex-grow p-2 border rounded-md" placeholder="Type announcement message...">
+                <button id="sendAnnouncementButton" class="send-announcement-btn action-button">Send</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Search</h2>
+            <div class="search-controls">
+                <input type="text" id="searchInput" placeholder="Search users or messages...">
+                <button id="searchUsersButton" class="search-btn active">Search Users</button>
+                <button id="searchMessagesButton" class="search-btn">Search Messages</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Connected Users</h2>
+            <div id="usersList" class="users-list">
+                <!-- User list will be rendered here -->
+                <p class="text-gray-500">No users connected.</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Chat Messages</h2>
+            <div id="messagesList" class="messages-list">
+                <!-- Messages will be rendered here -->
+                <p class="text-gray-500">No messages yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Profile Display Modal (for admin to view user profiles) -->
+    <div id="userProfileDisplayModal" class="modal-overlay hidden">
+        <div class="profile-modal-content relative">
+            <button class="close-button" id="closeUserProfileModal">&times;</button>
+            <h3 id="displayNickname"></h3>
+            <p><span class="font-semibold">Interest:</span> <span id="displayInterest"></span></p>
+            <p><span class="font-semibold">Gender:</span> <span id="displayGender"></span></p>
+        </div>
+    </div>
+
+    <script>
+        const loginPanel = document.getElementById('loginPanel');
+        const dashboardPanel = document.getElementById('dashboardPanel');
+        const adminPasswordInput = document.getElementById('adminPassword');
+        const loginButton = document.getElementById('loginButton');
+        const loginStatus = document.getElementById('loginStatus');
+        const refreshDataButton = document.getElementById('refreshDataButton');
+
+        const announcementInput = document.getElementById('announcementInput');
+        const sendAnnouncementButton = document.getElementById('sendAnnouncementButton');
+
+        const searchInput = document.getElementById('searchInput');
+        const searchUsersButton = document.getElementById('searchUsersButton');
+        const searchMessagesButton = document.getElementById('searchMessagesButton');
+
+        const usersListDiv = document.getElementById('usersList');
+        const messagesListDiv = document.getElementById('messagesList');
+
+        // Elements for profile display modal
+        const userProfileDisplayModal = document.getElementById('userProfileDisplayModal');
+        const closeUserProfileModalButton = document.getElementById('closeUserProfileModal');
+        const displayNickname = document.getElementById('displayNickname');
+        const displayInterest = document.getElementById('displayInterest');
+        const displayGender = document.getElementById('displayGender');
+
+        let ws; // Declare WebSocket globally to be accessible after login
+        let allUsers = []; // Store all users received from server for client-side search
+        let allMessages = []; // Store all messages received from server for client-side search
+        let currentSearchMode = 'users'; // 'users' or 'messages'
+
+        const LOCAL_STORAGE_KEY = 'adminLoggedIn';
+        const LOGIN_EXPIRATION_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+        // --- Initial Load Check for Persistent Login ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const storedLogin = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (storedLogin) {
+                try {
+                    const { timestamp } = JSON.parse(storedLogin);
+                    const now = Date.now();
+                    if (now - timestamp < LOGIN_EXPIRATION_MS) {
+                        console.log('Attempting auto-login based on localStorage...');
+                        loginPanel.classList.add('hidden');
+                        dashboardPanel.classList.remove('hidden');
+                        connectWebSocket('adminpass'); // Re-connect with password to re-authenticate
+                        return;
+                    } else {
+                        console.log('Stored login expired.');
+                        localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear expired login
+                    }
+                } catch (e) {
+                    console.error('Error parsing stored login:', e);
+                    localStorage.removeItem(LOCAL_STORAGE_KEY);
+                }
+            }
+            // If no valid stored login, show the login panel
+            loginPanel.classList.remove('hidden');
+            dashboardPanel.classList.add('hidden');
+        });
+
+
+        // --- Admin Login Logic ---
+        loginButton.addEventListener('click', () => {
+            const password = adminPasswordInput.value;
+            if (password) {
+                connectWebSocket(password);
+            } else {
+                loginStatus.textContent = 'Please enter a password.';
+            }
+        });
+
+        function connectWebSocket(password) {
+            // Close existing connection if any
+            if (ws && ws.readyState === ws.OPEN) {
+                ws.close();
+            }
+
+            ws = new WebSocket('ws://localhost:8080');
+
+            ws.onopen = () => {
+                console.log('Admin connected to WebSocket server');
+                // Send an adminLogin message with the password
+                ws.send(JSON.stringify({
+                    type: 'adminLogin',
+                    payload: { password: password }
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('Message from server:', data);
+
+                    switch (data.type) {
+                        case 'systemMessage':
+                            if (data.payload.text === 'Logged in as Admin.') {
+                                loginPanel.classList.add('hidden');
+                                dashboardPanel.classList.remove('hidden');
+                                loginStatus.textContent = ''; // Clear any previous login errors
+                                // Store login timestamp in localStorage
+                                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ timestamp: Date.now() }));
+                            } else if (data.payload.text === 'Admin login failed.') {
+                                loginStatus.textContent = 'Login failed. Incorrect password.';
+                                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear any invalid stored login
+                            } else {
+                                console.log('System message:', data.payload.text);
+                            }
+                            break;
+                        case 'adminData':
+                            // Store all data for client-side search
+                            allUsers = data.payload.users;
+                            allMessages = data.payload.messages;
+                            // Render based on current search filter
+                            applySearchFilter();
+                            break;
+                        default:
+                            console.warn('Unknown message type received by admin:', data.type);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse or handle admin message:', e, event.data);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('Admin disconnected from WebSocket server');
+                loginPanel.classList.remove('hidden');
+                dashboardPanel.classList.add('hidden');
+                loginStatus.textContent = 'Disconnected from server. Please log in again.';
+                ws = null; // Clear WebSocket instance
+                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear login on disconnect
+            };
+
+            ws.onerror = (error) => {
+                console.error('Admin WebSocket error:', error);
+                loginStatus.textContent = 'Connection error. Is server running?';
+                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear login on error
+            };
+        }
+
+        // --- Render Functions ---
+
+        function renderUsers(usersToRender) {
+            usersListDiv.innerHTML = ''; // Clear current list
+            if (usersToRender.length === 0) {
+                usersListDiv.innerHTML = '<p class="text-gray-500">No users found.</p>';
+                return;
+            }
+            usersToRender.forEach(user => {
+                const userItem = document.createElement('div');
+                userItem.classList.add('user-item', 'flex', 'items-center', 'py-2', 'border-b', 'border-gray-200');
+                userItem.innerHTML = `
+                    <div class="flex-grow">
+                        <span class="font-semibold">Session ID: ${user.id}</span>
+                        <span class="text-gray-600 ml-2">(${user.type} - ${user.status})</span>
+                        <span class="font-semibold ml-2">Nickname: ${user.nickname || 'N/A'}</span>
+                        ${user.isBlocked ? '<span class="ml-2 text-red-500 font-bold">BLOCKED</span>' : ''}
+                        <span class="text-xs text-gray-500 ml-2">Persistent ID: ${user.persistentUserId ? user.persistentUserId.substring(0, 8) + '...' : 'N/A'}</span>
+                    </div>
+                    <div>
+                        ${user.isBlocked
+                            ? `<button class="unblock-btn action-button" data-persistent-user-id="${user.persistentUserId}">Unblock</button>`
+                            : `<button class="block-btn action-button" data-persistent-user-id="${user.persistentUserId}">Block</button>`
+                        }
+                    </div>
+                `;
+                usersListDiv.appendChild(userItem);
+
+                // Add event listeners for block/unblock buttons
+                const blockUnblockBtn = userItem.querySelector('.action-button');
+                if (blockUnblockBtn) {
+                    blockUnblockBtn.addEventListener('click', (e) => {
+                        // Get the persistent user ID from the data attribute
+                        const persistentUserId = e.target.dataset.persistentUserId;
+                        if (!persistentUserId || persistentUserId === 'N/A') {
+                            console.error('Attempted to block/unblock user with invalid persistent ID.');
+                            return;
+                        }
+
+                        if (e.target.classList.contains('block-btn')) {
+                            sendAdminCommand('blockUser', { userId: persistentUserId }); // Send persistent ID
+                        } else if (e.target.classList.contains('unblock-btn')) {
+                            sendAdminCommand('unblockUser', { userId: persistentUserId }); // Send persistent ID
+                        }
+                    });
+                }
+            });
+        }
+
+        function renderMessages(messagesToRender) {
+            messagesListDiv.innerHTML = ''; // Clear current list
+            if (messagesToRender.length === 0) {
+                messagesListDiv.innerHTML = '<p class="text-gray-500">No messages found.</p>';
+                return;
+            }
+            messagesToRender.forEach(msg => {
+                const messageItem = document.createElement('div');
+                messageItem.classList.add('message-item', 'flex', 'items-center', 'py-2', 'border-b', 'border-gray-200');
+                
+                // Content for the message
+                let messageContentHtml = `
+                    <div class="message-content">
+                        <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(msg.senderProfile || {})}' data-sender-id="${msg.senderPersistentId}">
+                            ${msg.senderNickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`}:
+                        </span>
+                `;
+
+                if (msg.text) {
+                    messageContentHtml += `<span>${escapeHTML(msg.text)}</span>`;
+                }
+                if (msg.image) {
+                    messageContentHtml += `<img src="${msg.image}" class="message-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/150x100/A0A0A0/FFFFFF?text=Image+Load+Error';">`;
+                    // If there's text accompanying the image, display it below the image
+                    if (msg.text) { 
+                        messageContentHtml += `<span class="block text-sm text-gray-600 mt-1">${escapeHTML(msg.text)}</span>`;
+                    }
+                }
+                messageContentHtml += `
+                        <span class="text-xs text-gray-500 ml-2">(${new Date(msg.timestamp).toLocaleTimeString()})</span>
+                    </div>
+                    <div>
+                        <button class="delete-btn action-button" data-message-id="${msg.id}">Delete</button>
+                    </div>
+                `;
+                messageItem.innerHTML = messageContentHtml;
+                messagesListDiv.appendChild(messageItem);
+
+                // Add event listener for delete button
+                const deleteBtn = messageItem.querySelector('.delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', (e) => {
+                        const messageId = parseInt(e.target.dataset.messageId);
+                        sendAdminCommand('deleteMessage', { messageId: messageId });
+                    });
+                }
+
+                // Add click listener to sender's nickname to show profile
+                const senderNicknameSpan = messageItem.querySelector('.message-content .font-semibold.cursor-pointer');
+                if (senderNicknameSpan) {
+                    senderNicknameSpan.addEventListener('click', (e) => {
+                        try {
+                            const profileData = JSON.parse(e.target.dataset.senderProfile);
+                            showUserProfile(profileData);
+                        } catch (error) {
+                            console.error('Error parsing sender profile from data attribute:', error);
+                        }
+                    });
+                }
+            });
+            messagesListDiv.scrollTop = messagesListDiv.scrollHeight; // Scroll to bottom
+        }
+
+        // --- Admin Command Sender ---
+
+        function sendAdminCommand(type, payload) {
+            if (ws && ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: type, payload: payload }));
+            } else {
+                loginStatus.textContent = 'Not connected to server. Please log in.';
+            }
+        }
+
+        // --- Event Listeners for new features ---
+        refreshDataButton.addEventListener('click', () => {
+            if (ws && ws.readyState === ws.OPEN) {
+                sendAdminCommand('requestAdminData', {}); // Send a request to the server for fresh data
+            } else {
+                loginStatus.textContent = 'Not connected to server. Please log in.';
+            }
+        });
+
+        sendAnnouncementButton.addEventListener('click', () => {
+            const announcementText = announcementInput.value.trim();
+            if (announcementText) {
+                sendAdminCommand('adminBroadcast', { text: announcementText });
+                announcementInput.value = ''; // Clear input
+            } else {
+                alert('Please enter an announcement message.');
+            }
+        });
+
+        searchUsersButton.addEventListener('click', () => {
+            currentSearchMode = 'users';
+            searchUsersButton.classList.add('active');
+            searchMessagesButton.classList.remove('active');
+            applySearchFilter();
+        });
+
+        searchMessagesButton.addEventListener('click', () => {
+            currentSearchMode = 'messages';
+            searchMessagesButton.classList.add('active');
+            searchUsersButton.classList.remove('active');
+            applySearchFilter();
+        });
+
+        searchInput.addEventListener('input', applySearchFilter);
+
+        function applySearchFilter() {
+            const query = searchInput.value.toLowerCase();
+
+            if (currentSearchMode === 'users') {
+                const filteredUsers = allUsers.filter(user =>
+                    user.nickname.toLowerCase().includes(query) ||
+                    (user.persistentUserId && user.persistentUserId.toLowerCase().includes(query)) ||
+                    (user.id && user.id.toString().includes(query)) // Also allow searching by session ID
+                );
+                renderUsers(filteredUsers);
+            } else { // currentSearchMode === 'messages'
+                const filteredMessages = allMessages.filter(msg =>
+                    (msg.text && msg.text.toLowerCase().includes(query)) ||
+                    (msg.senderNickname && msg.senderNickname.toLowerCase().includes(query)) ||
+                    (msg.senderPersistentId && msg.senderPersistentId.toLowerCase().includes(query))
+                );
+                renderMessages(filteredMessages);
+            }
+        }
+
+        // --- User Profile Display Modal Functions ---
+        closeUserProfileModalButton.addEventListener('click', () => {
+            userProfileDisplayModal.classList.add('hidden');
+        });
+
+        function showUserProfile(profile) {
+            displayNickname.textContent = profile.nickname || 'N/A';
+            displayInterest.textContent = profile.interest || 'N/A';
+            displayGender.textContent = profile.gender || 'N/A';
+            userProfileDisplayModal.classList.remove('hidden');
+        }
+
+        function escapeHTML(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
