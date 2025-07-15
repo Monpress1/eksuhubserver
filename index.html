@@ -65,6 +65,7 @@
             line-height: 1.4;
             word-wrap: break-word;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            /* Removed transition for opacity */
         }
         .message-bubble.sent {
             align-self: flex-end;
@@ -78,16 +79,30 @@
             color: #374151; /* Gray-700 */
             border-bottom-left-radius: 4px;
         }
-        .message-bubble.announcement { /* NEW STYLE */
-            align-self: center; /* Center the announcement */
-            color: grey;
+        .message-bubble.announcement { /* Admin announcement style */
+            align-self: center;
+            background-color: #ff4500; /* Orangered */
+            color: white;
             text-align: center;
             font-weight: bold;
             padding: 0.75rem 1.5rem;
             border-radius: 20px;
-            max-width: 90%; /* Allow it to be wider */
+            max-width: 90%;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
         }
+        .message-bubble.status-update { /* User join/leave style */
+            align-self: center;
+            background-color: #d1d5db; /* Light gray */
+            color: #4b5563; /* Darker gray text */
+            text-align: center;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+            border-radius: 15px;
+            max-width: 70%;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        /* Removed .message-bubble.pending style */
+
         .message-input-area {
             display: flex;
             padding: 1rem;
@@ -135,7 +150,7 @@
             margin-top: 5px;
             display: block;
         }
-        /* Profile Pop-up Modal */
+        /* All Modals */
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -148,45 +163,7 @@
             align-items: center;
             z-index: 1000;
         }
-        .profile-modal-content {
-            background-color: #ffffff;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-            width: 90%;
-            max-width: 350px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            text-align: center;
-            position: relative; /* For close button positioning */
-        }
-        .profile-modal-content h3 {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #1f2937;
-            margin-bottom: 10px;
-        }
-        .profile-modal-content p {
-            font-size: 1.1rem;
-            color: #4b5563;
-        }
-        .profile-modal-content .close-button {
-            position: absolute;
-            top: 10px;
-            right: 15px;
-            font-size: 1.5rem;
-            cursor: pointer;
-            background: none;
-            border: none;
-            color: #6b7280;
-        }
-        .profile-modal-content .close-button:hover {
-            color: #1f2937;
-        }
-
-        /* Signup Modal */
-        .signup-modal-content {
+        .modal-content { /* Generic modal content style */
             background-color: #ffffff;
             padding: 30px;
             border-radius: 12px;
@@ -196,22 +173,26 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
+            position: relative;
         }
-        .signup-modal-content h2 {
+        .modal-content h2, .modal-content h3 {
             font-size: 2rem;
             font-weight: bold;
             color: #1f2937;
             text-align: center;
             margin-bottom: 10px;
         }
-        .signup-modal-content input,
-        .signup-modal-content select {
+        .modal-content input,
+        .modal-content textarea,
+        .modal-content select {
             padding: 12px;
             border: 1px solid #d1d5db;
             border-radius: 8px;
             font-size: 1rem;
+            width: 100%; /* Ensure inputs take full width */
+            box-sizing: border-box; /* Include padding in width */
         }
-        .signup-modal-content button {
+        .modal-content button {
             background-color: #4f46e5;
             color: white;
             padding: 12px;
@@ -220,12 +201,32 @@
             font-size: 1.1rem;
             font-weight: bold;
             transition: background-color 0.2s;
+            border: none;
         }
-        .signup-modal-content button:hover {
+        .modal-content button:hover {
             background-color: #4338ca;
+        }
+        .modal-content .close-button {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            color: #6b7280;
+        }
+        .modal-content .close-button:hover {
+            color: #1f2937;
         }
         .hidden {
             display: none;
+        }
+        .loading-indicator { /* Style for loading message */
+            text-align: center;
+            color: #6b7280;
+            font-style: italic;
+            padding: 10px;
         }
     </style>
 </head>
@@ -235,6 +236,7 @@
             WebSocket Chat
         </div>
         <div id="messagesContainer" class="messages-area">
+            <div id="loadingMessages" class="loading-indicator">Messages are loading...</div>
             <!-- Messages will be displayed here -->
         </div>
         <div class="message-input-area">
@@ -252,7 +254,7 @@
 
     <!-- User Profile Display Modal -->
     <div id="userProfileDisplayModal" class="modal-overlay hidden">
-        <div class="profile-modal-content relative">
+        <div class="modal-content profile-modal-content relative">
             <button class="close-button" id="closeUserProfileModal">&times;</button>
             <h3 id="displayNickname"></h3>
             <p><span class="font-semibold">Interest:</span> <span id="displayInterest"></span></p>
@@ -262,7 +264,7 @@
 
     <!-- User Signup Modal -->
     <div id="signupModal" class="modal-overlay hidden">
-        <div class="signup-modal-content">
+        <div class="modal-content signup-modal-content">
             <h2>Welcome!</h2>
             <p class="text-center text-gray-600">Please tell us about yourself to join the chat.</p>
             <input type="text" id="signupNickname" placeholder="Nickname" required>
@@ -283,6 +285,7 @@
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const imageUpload = document.getElementById('imageUpload');
+        const loadingMessagesIndicator = document.getElementById('loadingMessages');
 
         // Signup modal elements
         const signupModal = document.getElementById('signupModal');
@@ -299,12 +302,16 @@
         const displayGender = document.getElementById('displayGender');
 
         let ws;
-        let persistentUserId = localStorage.getItem('chatPersistentUserId'); // This is the stable ID
+        let persistentUserId = localStorage.getItem('chatPersistentUserId');
         let userProfile = JSON.parse(localStorage.getItem('chatUserProfile')) || {};
+
+        // --- IMPORTANT: YOUR DEPLOYED RAILWAY.APP URL ---
+        const WEBSOCKET_SERVER_URL = 'wss://eksuhubserver-production.up.railway.app'; 
+        // -----------------------------------------------------------------
 
         // If no persistent user ID, generate one
         if (!persistentUserId) {
-            persistentUserId = crypto.randomUUID(); // Generate a unique ID
+            persistentUserId = crypto.randomUUID();
             localStorage.setItem('chatPersistentUserId', persistentUserId);
             console.log('Generated new persistent user ID:', persistentUserId);
         } else {
@@ -338,20 +345,21 @@
         });
 
         function connectWebSocket() {
-            ws = new WebSocket('ws://localhost:8080');
+            ws = new WebSocket(WEBSOCKET_SERVER_URL);
 
             ws.onopen = () => {
                 console.log('Connected to WebSocket server');
-                // Send initial user data including the persistent ID
                 ws.send(JSON.stringify({
                     type: 'initialUserData',
                     payload: {
-                        persistentUserId: persistentUserId, // Send the persistent ID
+                        persistentUserId: persistentUserId,
                         nickname: userProfile.nickname,
                         interest: userProfile.interest,
                         gender: userProfile.gender
                     }
                 }));
+                loadingMessagesIndicator.classList.remove('hidden'); // Show loading indicator
+                loadingMessagesIndicator.textContent = 'Messages are loading...'; // Reset text
             };
 
             ws.onmessage = (event) => {
@@ -361,17 +369,25 @@
                 switch (data.type) {
                     case 'initialData':
                         messagesContainer.innerHTML = ''; // Clear existing messages
+                        loadingMessagesIndicator.classList.add('hidden'); // Hide loading indicator
+                        // Loop through all messages and use the consolidated displayMessage
                         data.payload.messages.forEach(msg => displayMessage(msg));
                         messagesContainer.scrollTop = messagesContainer.scrollHeight;
                         break;
                     case 'chatMessage':
+                        // Only display the message when it's received from the server
+                        // The clientTempId logic is removed as we no longer display pending messages
                         displayMessage(data.payload);
+                        console.log(`Displayed confirmed message: ${data.payload.id}`);
                         break;
                     case 'systemMessage':
-                        displaySystemMessage(data.payload.text);
+                        displayGeneralSystemMessage(data.payload.text);
                         break;
-                    case 'systemAnnouncement': // NEW: Handle admin announcements
-                        displaySystemAnnouncement(data.payload.text);
+                    case 'systemAnnouncement':
+                        displayMessage(data.payload);
+                        break;
+                    case 'userStatusUpdate':
+                        displayMessage(data.payload);
                         break;
                     case 'messageDeleted':
                         removeMessage(data.payload.messageId);
@@ -383,23 +399,25 @@
 
             ws.onclose = () => {
                 console.log('Disconnected from WebSocket server');
-                // Attempt to reconnect after a delay
+                loadingMessagesIndicator.classList.remove('hidden');
+                loadingMessagesIndicator.textContent = 'Disconnected. Reconnecting...';
                 setTimeout(connectWebSocket, 3000);
             };
 
             ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
+                loadingMessagesIndicator.classList.remove('hidden');
+                loadingMessagesIndicator.textContent = 'Connection error. Retrying...';
             };
         }
 
         sendButton.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault(); // Prevent new line
+                e.preventDefault();
                 sendMessage();
             }
         });
-        // Auto-resize textarea
         messageInput.addEventListener('input', () => {
             messageInput.style.height = 'auto';
             messageInput.style.height = messageInput.scrollHeight + 'px';
@@ -410,22 +428,25 @@
             if (file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    const base64Image = e.target.result; // Base64 string
-                    const messageText = messageInput.value.trim(); // Get any accompanying text
+                    const base64Image = e.target.result;
+                    const messageText = messageInput.value.trim();
+                    
                     if (ws && ws.readyState === ws.OPEN) {
                         ws.send(JSON.stringify({
                             type: 'chatMessage',
                             payload: {
-                                text: messageText || null, // Send text or null
+                                text: messageText || null,
                                 image: base64Image,
                                 fileName: file.name
+                                // clientTempId is no longer sent as we don't display pending messages
                             }
                         }));
-                        messageInput.value = ''; // Clear input
-                        messageInput.style.height = 'auto'; // Reset height
-                        imageUpload.value = ''; // Clear file input
+                        messageInput.value = '';
+                        messageInput.style.height = 'auto';
+                        imageUpload.value = '';
                     } else {
                         alert('Not connected to chat server.');
+                        // No need to remove pending message as it's not displayed
                     }
                 };
                 reader.readAsDataURL(file);
@@ -439,75 +460,80 @@
             if (ws && ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({
                     type: 'chatMessage',
-                    payload: { text: text }
+                    payload: {
+                        text: text
+                        // clientTempId is no longer sent as we don't display pending messages
+                    }
                 }));
-                messageInput.value = ''; // Clear input
-                messageInput.style.height = 'auto'; // Reset height
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
             } else {
                 alert('Not connected to chat server.');
+                // No need to remove pending message as it's not displayed
             }
         }
 
+        // displayMessage function no longer handles pending state
         function displayMessage(msg) {
             const messageElement = document.createElement('div');
-            // Use persistentUserId for 'sent' vs 'received'
-            messageElement.classList.add('message-bubble', msg.senderPersistentId === persistentUserId ? 'sent' : 'received');
-            messageElement.dataset.messageId = msg.id; // Store message ID for deletion
-
-            let messageContent = '';
-            if (msg.image) {
-                messageContent += `<img src="${msg.image}" class="chat-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/100x100/A0A0A0/FFFFFF?text=Image+Load+Error';" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 5px;">`;
-            }
-            if (msg.text) {
-                messageContent += `<p class="text-gray-800">${escapeHTML(msg.text)}</p>`;
+            // messageElement.dataset.clientTempId is removed
+            if (msg.id) {
+                messageElement.dataset.messageId = msg.id;
             }
 
-            // Use senderNickname from the message payload
-            const senderNickname = msg.senderNickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`;
-            const timestamp = new Date(msg.timestamp).toLocaleTimeString();
+            if (msg.messageType === 'systemAnnouncement') {
+                messageElement.classList.add('message-bubble', 'announcement', 'my-2');
+                messageElement.textContent = msg.text;
+            } else if (msg.messageType === 'userStatusUpdate') {
+                messageElement.classList.add('message-bubble', 'status-update', 'my-2');
+                messageElement.textContent = `${msg.nickname} has ${msg.status} the chat.`;
+            }
+            else { // Default to chatMessage
+                messageElement.classList.add('message-bubble', msg.senderPersistentId === persistentUserId ? 'sent' : 'received');
+                
+                let messageContent = '';
+                if (msg.image) {
+                    messageContent += `<img src="${msg.image}" class="chat-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/100x100/A0A0A0/FFFFFF?text=Image+Load+Error';" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 5px;">`;
+                }
+                if (msg.text) {
+                    messageContent += `<p class="text-gray-800">${escapeHTML(msg.text)}</p>`;
+                }
 
-            messageElement.innerHTML = `
-                <div class="flex items-center text-sm text-gray-600 mb-1">
-                    <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(msg.senderProfile || {})}' data-sender-id="${msg.senderPersistentId}">
-                        ${senderNickname}
-                    </span>
-                    <span class="ml-2 text-xs">${timestamp}</span>
-                </div>
-                <div class="message-content-wrapper p-3 rounded-lg">
-                    ${messageContent}
-                </div>
-            `;
+                const senderNickname = msg.senderNickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`;
+                const timestamp = new Date(msg.timestamp).toLocaleTimeString();
+
+                messageElement.innerHTML = `
+                    <div class="flex items-center text-sm text-gray-600 mb-1">
+                        <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(msg.senderProfile || {})}' data-sender-id="${msg.senderPersistentId}">
+                            ${senderNickname}
+                        </span>
+                        <span class="ml-2 text-xs">${timestamp}</span>
+                    </div>
+                    <div class="message-content-wrapper p-3 rounded-lg">
+                        ${messageContent}
+                    </div>
+                `;
+                const senderNicknameSpan = messageElement.querySelector('.font-semibold.cursor-pointer');
+                if (senderNicknameSpan) {
+                    senderNicknameSpan.addEventListener('click', (e) => {
+                        try {
+                            const profileData = JSON.parse(e.target.dataset.senderProfile);
+                            showUserProfile(profileData);
+                        } catch (error) {
+                            console.error('Error parsing sender profile from data attribute:', error);
+                        }
+                    });
+                }
+            }
             messagesContainer.appendChild(messageElement);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-            // Add event listener for profile pop-up
-            const senderNicknameSpan = messageElement.querySelector('.font-semibold.cursor-pointer'); // More specific selector
-            if (senderNicknameSpan) {
-                senderNicknameSpan.addEventListener('click', (e) => {
-                    try {
-                        const profileData = JSON.parse(e.target.dataset.senderProfile);
-                        showUserProfile(profileData);
-                    } catch (error) {
-                        console.error('Error parsing sender profile from data attribute:', error);
-                    }
-                });
-            }
         }
 
-        function displaySystemMessage(text) {
+        function displayGeneralSystemMessage(text) {
             const systemMessageElement = document.createElement('div');
             systemMessageElement.classList.add('text-center', 'text-gray-500', 'text-sm', 'my-2');
             systemMessageElement.textContent = text;
             messagesContainer.appendChild(systemMessageElement);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-
-        // NEW: Function to display admin announcements
-        function displaySystemAnnouncement(text) {
-            const announcementElement = document.createElement('div');
-            announcementElement.classList.add('message-bubble', 'announcement', 'my-2'); // Apply new styling
-            announcementElement.textContent = text;
-            messagesContainer.appendChild(announcementElement);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
@@ -517,6 +543,9 @@
                 messageElement.remove();
             }
         }
+
+        // removeMessageByClientTempId is no longer needed
+        // function removeMessageByClientTempId(clientTempId) { ... }
 
         function showUserProfile(profile) {
             displayNickname.textContent = profile.nickname || 'N/A';
