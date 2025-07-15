@@ -2,8 +2,9 @@
 // This script sets up a WebSocket server for a chat application with admin capabilities.
 // It uses SQLite to persist chat messages, user profiles, and blocked users.
 // It now supports persistent user IDs across server restarts and ensures database is ready before accepting connections.
-// New: Admin can send broadcast messages to all chat clients.
-// New: User join/leave messages now use nicknames.
+// New: Admin can send broadcast messages to all chat clients, and these messages now persist in the database.
+// New: Admin can now clear all chat history from the database.
+// Removed: Product advertisement features.
 
 // Import necessary modules
 const { WebSocketServer } = require('ws');
@@ -76,18 +77,19 @@ async function connectToSQLite() {
                     });
 
                     // Messages table to store chat messages
-                    // senderId now references persistentUserId
+                    // Added messageType column with default 'chatMessage'
                     await new Promise((res, rej) => {
                         db.run(`
                             CREATE TABLE IF NOT EXISTS messages (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                senderPersistentId TEXT, -- Now references persistentUserId
+                                senderPersistentId TEXT, -- Now references persistentUserId (can be 'admin_system' or actual user ID)
                                 senderNickname TEXT,
                                 senderProfile TEXT, -- Stored as JSON string
                                 text TEXT,
                                 image TEXT, -- Base64 string
                                 fileName TEXT,
                                 timestamp INTEGER,
+                                messageType TEXT DEFAULT 'chatMessage', -- Type of message (chatMessage, systemAnnouncement, userStatusUpdate)
                                 FOREIGN KEY (senderPersistentId) REFERENCES users(persistentUserId) ON DELETE CASCADE
                             )
                         `, (err) => {
@@ -100,6 +102,9 @@ async function connectToSQLite() {
                             }
                         });
                     });
+
+                    // Removed: Products table for advertisements
+                    // await new Promise((res, rej) => { ... });
 
                     // Blocked Users table
                     // userId now references persistentUserId
@@ -134,41 +139,47 @@ async function connectToSQLite() {
 // --- Load Initial Data from SQLite ---
 async function loadInitialData() {
     return new Promise((resolve, reject) => {
-        db.all("SELECT * FROM messages ORDER BY timestamp ASC", [], (err, rows) => {
+        // Fetch messages
+        db.all("SELECT * FROM messages ORDER BY timestamp ASC", [], (err, msgRows) => {
             if (err) {
                 console.error('Error loading messages from SQLite:', err.message);
                 return reject(err);
             }
+
             messages.length = 0; // Clear in-memory messages
-            let maxId = 0; // Track the maximum ID found in the database
-            rows.forEach(row => {
-                // Parse senderProfile back to object
+
+            // Add regular chat messages and announcements to the in-memory array
+            msgRows.forEach(row => {
                 if (row.senderProfile) {
                     try {
                         row.senderProfile = JSON.parse(row.senderProfile);
                     } catch (e) {
                         console.error("Error parsing senderProfile from DB:", e, row.senderProfile);
-                        row.senderProfile = {}; // Default to empty object on parse error
+                        row.senderProfile = {};
                     }
                 } else {
                     row.senderProfile = {};
                 }
                 messages.push(row);
-                if (row.id > maxId) { // Update maxId
-                    maxId = row.id;
+                if (row.id > nextMessageDbId) {
+                    nextMessageDbId = row.id + 1; // Update next ID based on message IDs
                 }
             });
-            nextMessageDbId = maxId + 1; // Set nextMessageDbId to be one greater than the highest existing ID
 
-            db.all("SELECT userId FROM blocked_users", [], (err, rows) => {
+            // Removed: Loading products from DB
+
+            // Sort all messages (chat, announcements, user status) by timestamp
+            messages.sort((a, b) => a.timestamp - b.timestamp);
+
+            db.all("SELECT userId FROM blocked_users", [], (err, blockedRows) => {
                 if (err) {
                     console.error('Error loading blocked users from SQLite:', err.message);
                     return reject(err);
                 }
                 blockedUsers.clear(); // Clear in-memory set
-                rows.forEach(row => blockedUsers.add(row.userId));
+                blockedRows.forEach(row => blockedUsers.add(row.userId));
 
-                console.log(`Loaded ${messages.length} messages and ${blockedUsers.size} blocked users from DB. Next message DB ID will be: ${nextMessageDbId}`);
+                console.log(`Loaded ${messages.length} total messages and ${blockedUsers.size} blocked users from DB. Next message DB ID will be: ${nextMessageDbId}`);
                 resolve();
             });
         });
@@ -273,7 +284,7 @@ function setupWebSocketListeners() {
         // Messages array is already populated from DB on server startup.
         sendToClient(ws, 'initialData', {
             clientId: currentSessionId, // Send session ID to client
-            messages: messages, 
+            messages: messages, // This now includes chat messages, announcements, and user status updates
             users: Array.from(clients.values()).map(c => ({
                 id: c.sessionId, // Use session ID for display in chat client's user list
                 persistentUserId: c.persistentUserId, // Include persistent ID if known
@@ -284,10 +295,6 @@ function setupWebSocketListeners() {
             }))
         });
 
-        // Inform all chat clients that a new user has joined (optional, but good for chat)
-        // This will be updated with nickname once initialUserData is received.
-        // We no longer send a systemMessage here, but wait for initialUserData to send userStatusUpdate
-        // broadcastToChatClients('systemMessage', { text: `User ${currentSessionId} has joined the chat.` }); 
         sendAdminUpdate(); // Update all admin dashboards on new connection (for user joins/leaves)
 
         // Event listener for when the server receives a message from this specific client.
@@ -366,14 +373,16 @@ function setupWebSocketListeners() {
                             text: parsedMessage.payload.text || null,
                             image: parsedMessage.payload.image || null, // Base64 string
                             fileName: parsedMessage.payload.fileName || null, // Image file name
-                            timestamp: Date.now()
+                            timestamp: Date.now(),
+                            messageType: 'chatMessage', // Explicitly set message type
+                            // clientTempId is no longer echoed back as client doesn't display pending messages
                         };
 
                         // Save message to SQLite
                         await new Promise((resolve, reject) => {
                             db.run(`
-                                INSERT INTO messages (senderPersistentId, senderNickname, senderProfile, text, image, fileName, timestamp)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                INSERT INTO messages (senderPersistentId, senderNickname, senderProfile, text, image, fileName, timestamp, messageType)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             `, [
                                 newMessage.senderPersistentId, // Use persistent ID here
                                 newMessage.senderNickname,
@@ -381,7 +390,8 @@ function setupWebSocketListeners() {
                                 newMessage.text,
                                 newMessage.image,
                                 newMessage.fileName,
-                                newMessage.timestamp
+                                newMessage.timestamp,
+                                newMessage.messageType
                             ], function(err) {
                                 if (err) {
                                     console.error("Error inserting message into DB:", err.message);
@@ -409,6 +419,8 @@ function setupWebSocketListeners() {
                         break;
 
                     case 'adminLogin':
+                        // This is a placeholder for actual admin authentication.
+                        // For now, any password will grant admin access.
                         if (parsedMessage.payload.password === 'adminpass') { // Simple password check
                             currentClientInfo.type = 'admin'; // Update the client's type in the map
                             sendToClient(ws, 'systemMessage', { text: 'Logged in as Admin.' });
@@ -433,8 +445,55 @@ function setupWebSocketListeners() {
                             const announcementText = parsedMessage.payload.text;
                             if (announcementText) {
                                 console.log(`Admin (Session ID: ${currentSessionId}) sending broadcast: "${announcementText}"`);
+                                
+                                // Create announcement message object to save to DB
+                                const announcementMessage = {
+                                    senderPersistentId: 'admin_system', // Special ID for admin announcements
+                                    senderNickname: 'Admin',
+                                    senderProfile: JSON.stringify({ nickname: 'Admin', interest: 'Moderation', gender: 'N/A' }), // Basic admin profile
+                                    text: announcementText,
+                                    image: null,
+                                    fileName: null,
+                                    timestamp: Date.now(),
+                                    messageType: 'systemAnnouncement' // Explicitly set message type
+                                };
+
+                                // Save announcement to SQLite
+                                await new Promise((resolve, reject) => {
+                                    db.run(`
+                                        INSERT INTO messages (senderPersistentId, senderNickname, senderProfile, text, image, fileName, timestamp, messageType)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    `, [
+                                        announcementMessage.senderPersistentId,
+                                        announcementMessage.senderNickname,
+                                        announcementMessage.senderProfile,
+                                        announcementMessage.text,
+                                        announcementMessage.image,
+                                        announcementMessage.fileName,
+                                        announcementMessage.timestamp,
+                                        announcementMessage.messageType
+                                    ], function(err) {
+                                        if (err) {
+                                            console.error("Error inserting announcement into DB:", err.message);
+                                            reject(err);
+                                        }
+                                        else {
+                                            announcementMessage.id = this.lastID;
+                                            console.log(`Announcement inserted into DB with ID: ${announcementMessage.id}`);
+                                            resolve();
+                                        }
+                                    });
+                                });
+
+                                // Add to in-memory messages array
+                                messages.push(announcementMessage);
+                                messages.sort((a, b) => a.timestamp - b.timestamp); // Keep sorted
+                                console.log(`Announcement added to in-memory array. Current total messages: ${messages.length}`);
+
+                                // Broadcast to all chat clients
                                 broadcastToChatClients('systemAnnouncement', { text: announcementText });
                                 sendToClient(ws, 'systemMessage', { text: 'Announcement sent.' });
+                                sendAdminUpdate(); // Update admin dashboard
                             }
                         } else {
                             sendToClient(ws, 'systemMessage', { text: 'Permission denied for broadcasting.' });
@@ -447,9 +506,9 @@ function setupWebSocketListeners() {
                             
                             // Delete from SQLite
                             await new Promise((resolve, reject) => {
-                                db.run("DELETE FROM messages WHERE id = ?", [messageIdToDelete], function(err) {
+                                db.run(`DELETE FROM messages WHERE id = ?`, [messageIdToDelete], function(err) {
                                     if (err) {
-                                        console.error("Error deleting message from DB:", err.message);
+                                        console.error(`Error deleting message from DB:`, err.message);
                                         reject(err);
                                     }
                                     else resolve(this.changes); // Number of rows deleted
@@ -469,7 +528,7 @@ function setupWebSocketListeners() {
                                     sendToClient(ws, 'systemMessage', { text: `Message ID ${messageIdToDelete} not found.` });
                                 }
                             }).catch(err => {
-                                console.error("Error deleting message from DB (catch block):", err.message);
+                                console.error(`Error deleting message from DB (catch block):`, err.message);
                                 sendToClient(ws, 'systemMessage', { text: 'Error deleting message.' });
                             });
                         } else {
@@ -493,13 +552,13 @@ function setupWebSocketListeners() {
                                 if (!blockedUsers.has(userIdToBlock)) {
                                     blockedUsers.add(userIdToBlock);
                                     // Save to blocked_users table
-                                    await new Promise((resolve, reject) => {
+                                    await new Promise((res, rej) => {
                                         db.run("INSERT INTO blocked_users (userId, timestamp) VALUES (?, ?)", [userIdToBlock, Date.now()], function(err) {
                                             if (err) {
                                                 console.error("Error blocking user in DB:", err.message);
-                                                reject(err);
+                                                rej(err);
                                             }
-                                            else resolve();
+                                            else res();
                                         });
                                     });
                                     console.log(`User (Persistent ID: ${userIdToBlock}) blocked and saved to DB.`);
@@ -521,13 +580,13 @@ function setupWebSocketListeners() {
                             const userIdToUnblock = parsedMessage.payload.userId; // This is the persistentUserId from admin client
                             if (blockedUsers.delete(userIdToUnblock)) {
                                 // Remove from blocked_users table
-                                await new Promise((resolve, reject) => {
+                                await new Promise((res, rej) => {
                                     db.run("DELETE FROM blocked_users WHERE userId = ?", [userIdToUnblock], function(err) {
                                         if (err) {
                                             console.error("Error unblocking user in DB:", err.message);
-                                            reject(err);
+                                            rej(err);
                                         }
-                                        else resolve();
+                                        else res();
                                     });
                                 });
                                 console.log(`User (Persistent ID: ${userIdToUnblock}) unblocked and removed from DB.`);
@@ -541,6 +600,34 @@ function setupWebSocketListeners() {
                         }
                         break;
 
+                    case 'clearChatHistory': // NEW: Handle clear chat history command
+                        if (currentClientInfo.type === 'admin') {
+                            console.log(`Admin (Session ID: ${currentSessionId}) initiated chat history clear.`);
+                            try {
+                                await new Promise((resolve, reject) => {
+                                    db.run(`DELETE FROM messages`, [], function(err) {
+                                        if (err) {
+                                            console.error(`Error clearing messages from DB:`, err.message);
+                                            reject(err);
+                                        } else {
+                                            resolve(this.changes);
+                                        }
+                                    });
+                                });
+                                messages.length = 0; // Clear in-memory array
+                                console.log('All messages deleted from DB and in-memory array.');
+                                broadcastToChatClients('systemMessage', { text: 'Chat history has been cleared by an admin.' });
+                                sendAdminUpdate(); // Update admin dashboards
+                                sendToClient(ws, 'systemMessage', { text: 'Chat history cleared successfully.' });
+                            } catch (error) {
+                                console.error('Failed to clear chat history:', error);
+                                sendToClient(ws, 'systemMessage', { text: 'Failed to clear chat history.' });
+                            }
+                        } else {
+                            sendToClient(ws, 'systemMessage', { text: 'Permission denied to clear chat history.' });
+                        }
+                        break;
+
                     default:
                         console.warn(`Unknown message type: ${parsedMessage.type}`);
                         sendToClient(ws, 'systemMessage', { text: 'Unknown command.' });
@@ -551,7 +638,8 @@ function setupWebSocketListeners() {
             }
         });
 
-        // Event listener for when a client disconnects.
+        // Event listener for when the server receives a message from this specific client.
+        // This is a duplicate; the one above should be used.
         wss.on('close', async () => { // Made async to await DB operations
             const disconnectedClientInfo = clients.get(currentSessionId);
             if (disconnectedClientInfo && disconnectedClientInfo.persistentUserId) { // Use persistentUserId
