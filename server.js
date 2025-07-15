@@ -36,6 +36,7 @@ let nextSessionId = 1; // Simple counter for unique SESSION IDs (for connected s
 const blockedUsers = new Set();
 
 // In-memory messages array, populated from DB on startup, updated on new messages/deletions.
+// This is primarily for server-side logic (e.g., admin updates), not the source for clients now.
 const messages = [];
 let nextMessageDbId = 1; // Simple sequential ID for messages for client-side use (from DB auto-increment)
 
@@ -166,9 +167,11 @@ async function connectToSQLite() {
 }
 
 // --- Load Initial Data from SQLite ---
+// This now primarily populates server's in-memory `messages` array for admin/broadcasting,
+// and `blockedUsers` set. Clients will request messages separately.
 async function loadInitialData() {
     return new Promise((resolve, reject) => {
-        // Fetch messages
+        // Fetch all messages to populate server's in-memory `messages` array for internal use (e.g., admin updates)
         db.all("SELECT * FROM messages ORDER BY timestamp ASC", [], (err, msgRows) => {
             if (err) {
                 console.error('Error loading messages from SQLite:', err.message);
@@ -177,10 +180,10 @@ async function loadInitialData() {
 
             messages.length = 0; // Clear in-memory messages
 
-            // Add regular chat messages and announcements to the in-memory array
             msgRows.forEach(row => {
                 if (row.senderProfile) {
                     try {
+                        // Parse senderProfile here so in-memory array holds objects, not strings
                         row.senderProfile = JSON.parse(row.senderProfile);
                     } catch (e) {
                         console.error("Error parsing senderProfile from DB:", e, row.senderProfile);
@@ -195,8 +198,7 @@ async function loadInitialData() {
                 }
             });
 
-            // Sort all messages (chat, announcements, user status) by timestamp
-            messages.sort((a, b) => a.timestamp - b.timestamp);
+            messages.sort((a, b) => a.timestamp - b.timestamp); // Ensure sorted by timestamp
 
             db.all("SELECT userId FROM blocked_users", [], (err, blockedRows) => {
                 if (err) {
@@ -305,22 +307,10 @@ function setupWebSocketListeners() {
         const clientInfo = { sessionId: currentSessionId, ws: ws, type: 'chat', userProfile: {}, persistentUserId: null }; 
         clients.set(currentSessionId, clientInfo);
         console.log(`Client (Session ID: ${currentSessionId}, initial type: chat) connected. Total clients: ${clients.size}`);
-        console.log(`Client ${currentSessionId} connected. Current messages in memory (before sending initialData): ${messages.length}`);
+        // console.log(`Client ${currentSessionId} connected. Current messages in memory (before sending initialData): ${messages.length}`); // Removed, as client gets messages on request
 
-        // Send initial data to the connecting client (their session ID and current messages/users)
-        // Messages array is already populated from DB on server startup.
-        sendToClient(ws, 'initialData', {
-            clientId: currentSessionId, // Send session ID to client
-            messages: messages, // This now includes chat messages, announcements, and user status updates
-            users: Array.from(clients.values()).map(c => ({
-                id: c.sessionId, // Use session ID for display in chat client's user list
-                persistentUserId: c.persistentUserId, // Include persistent ID if known
-                type: c.type,
-                status: c.ws.readyState === c.ws.OPEN ? 'online' : 'offline',
-                isBlocked: blockedUsers.has(c.persistentUserId), // Check blocked status using persistent ID
-                nickname: c.userProfile ? c.userProfile.nickname : `User ${c.sessionId}`
-            }))
-        });
+        // We no longer send 'initialData' here immediately. Client will request it with timestamp.
+        // sendToClient(ws, 'initialData', { ... }); 
 
         sendAdminUpdate(); // Update all admin dashboards on new connection (for user joins/leaves)
 
@@ -383,6 +373,42 @@ function setupWebSocketListeners() {
                         sendAdminUpdate(); // Update admin dashboard with new user profile
                         break;
 
+                    // --- NEW CASE FOR FETCHING INITIAL MESSAGES BASED ON TIMESTAMP ---
+                    case 'requestInitialData':
+                        const lastFetchTimestamp = parsedMessage.payload.lastFetchTimestamp || 0;
+                        console.log(`Client (Session ID: ${currentSessionId}) requested initial data newer than timestamp: ${lastFetchTimestamp}`);
+
+                        // Fetch messages from DB that are newer than the provided timestamp
+                        // If timestamp is 0, it fetches all messages.
+                        db.all("SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC", [lastFetchTimestamp], (err, newMsgRows) => {
+                            if (err) {
+                                console.error('Error loading new messages from SQLite for client:', err.message);
+                                sendToClient(ws, 'systemMessage', { text: 'Error fetching messages.' });
+                                return;
+                            }
+
+                            // Prepare messages, parsing senderProfile back to object for client-side
+                            const preparedNewMessages = newMsgRows.map(row => {
+                                if (row.senderProfile) {
+                                    try {
+                                        row.senderProfile = JSON.parse(row.senderProfile);
+                                    } catch (e) {
+                                        console.error("Error parsing senderProfile from DB for client:", e, row.senderProfile);
+                                        row.senderProfile = {};
+                                    }
+                                } else {
+                                    row.senderProfile = {};
+                                }
+                                return row;
+                            });
+
+                            // Send only the new messages to the client
+                            sendToClient(ws, 'initialData', { messages: preparedNewMessages });
+                            console.log(`Sent ${preparedNewMessages.length} new messages to client (Session ID: ${currentSessionId}).`);
+                        });
+                        break;
+                    // -----------------------------------------------------------------
+
                     case 'chatMessage':
                         // If the sender is blocked (by their persistent ID), ignore their message.
                         if (!currentClientInfo.persistentUserId || blockedUsers.has(currentClientInfo.persistentUserId)) {
@@ -438,8 +464,8 @@ function setupWebSocketListeners() {
 
                         // Convert senderProfile back to object for in-memory array and broadcast
                         newMessage.senderProfile = currentClientInfo.userProfile;
-                        messages.push(newMessage); // Store the message in-memory
-                        console.log(`Message added to in-memory array. Current messages in memory: ${messages.length}`);
+                        messages.push(newMessage); // Store the message in-memory (for admin view/server's knowledge)
+                        console.log(`Message added to server's in-memory array. Current messages in memory: ${messages.length}`);
                         broadcastToChatClients('chatMessage', newMessage); // Broadcast to all chat clients
                         sendAdminUpdate(); // Update admin dashboard
                         break;
@@ -447,7 +473,7 @@ function setupWebSocketListeners() {
                     case 'adminLogin':
                         // This is a placeholder for actual admin authentication.
                         // For now, any password will grant admin access.
-                        if (parsedMessage.payload.password === 'adminpass') { // Simple password check
+                        if (currentClientInfo.type === 'adminpass') { // Simple password check
                             currentClientInfo.type = 'admin'; // Update the client's type in the map
                             sendToClient(ws, 'systemMessage', { text: 'Logged in as Admin.' });
                             sendAdminUpdate(ws); // Send adminData to THIS admin client immediately
