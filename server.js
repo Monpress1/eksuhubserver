@@ -3,8 +3,7 @@
 // It uses SQLite to persist chat messages, user profiles, and blocked users.
 // It now supports persistent user IDs across server restarts and ensures database is ready before accepting connections.
 // New: Admin can send broadcast messages to all chat clients, and these messages now persist in the database.
-// New: Admin can now clear all chat history from the database.
-// Removed: Product advertisement features.
+// Removed: Product advertisement features and the 'clear chat history' admin command.
 
 // Import necessary modules
 const { WebSocketServer } = require('ws');
@@ -103,9 +102,6 @@ async function connectToSQLite() {
                         });
                     });
 
-                    // Removed: Products table for advertisements
-                    // await new Promise((res, rej) => { ... });
-
                     // Blocked Users table
                     // userId now references persistentUserId
                     await new Promise((res, rej) => {
@@ -165,8 +161,6 @@ async function loadInitialData() {
                     nextMessageDbId = row.id + 1; // Update next ID based on message IDs
                 }
             });
-
-            // Removed: Loading products from DB
 
             // Sort all messages (chat, announcements, user status) by timestamp
             messages.sort((a, b) => a.timestamp - b.timestamp);
@@ -375,7 +369,6 @@ function setupWebSocketListeners() {
                             fileName: parsedMessage.payload.fileName || null, // Image file name
                             timestamp: Date.now(),
                             messageType: 'chatMessage', // Explicitly set message type
-                            // clientTempId is no longer echoed back as client doesn't display pending messages
                         };
 
                         // Save message to SQLite
@@ -600,34 +593,6 @@ function setupWebSocketListeners() {
                         }
                         break;
 
-                    case 'clearChatHistory': // NEW: Handle clear chat history command
-                        if (currentClientInfo.type === 'admin') {
-                            console.log(`Admin (Session ID: ${currentSessionId}) initiated chat history clear.`);
-                            try {
-                                await new Promise((resolve, reject) => {
-                                    db.run(`DELETE FROM messages`, [], function(err) {
-                                        if (err) {
-                                            console.error(`Error clearing messages from DB:`, err.message);
-                                            reject(err);
-                                        } else {
-                                            resolve(this.changes);
-                                        }
-                                    });
-                                });
-                                messages.length = 0; // Clear in-memory array
-                                console.log('All messages deleted from DB and in-memory array.');
-                                broadcastToChatClients('systemMessage', { text: 'Chat history has been cleared by an admin.' });
-                                sendAdminUpdate(); // Update admin dashboards
-                                sendToClient(ws, 'systemMessage', { text: 'Chat history cleared successfully.' });
-                            } catch (error) {
-                                console.error('Failed to clear chat history:', error);
-                                sendToClient(ws, 'systemMessage', { text: 'Failed to clear chat history.' });
-                            }
-                        } else {
-                            sendToClient(ws, 'systemMessage', { text: 'Permission denied to clear chat history.' });
-                        }
-                        break;
-
                     default:
                         console.warn(`Unknown message type: ${parsedMessage.type}`);
                         sendToClient(ws, 'systemMessage', { text: 'Unknown command.' });
@@ -638,8 +603,7 @@ function setupWebSocketListeners() {
             }
         });
 
-        // Event listener for when the server receives a message from this specific client.
-        // This is a duplicate; the one above should be used.
+        // Event listener for when a client disconnects.
         wss.on('close', async () => { // Made async to await DB operations
             const disconnectedClientInfo = clients.get(currentSessionId);
             if (disconnectedClientInfo && disconnectedClientInfo.persistentUserId) { // Use persistentUserId
