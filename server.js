@@ -3,7 +3,6 @@
 // It uses SQLite to persist chat messages, user profiles, and blocked users.
 // It now supports persistent user IDs across server restarts and ensures database is ready before accepting connections.
 // New: Admin can send broadcast messages to all chat clients, and these messages now persist in the database.
-// Removed: Product advertisement features and the 'clear chat history' admin command.
 
 // Import necessary modules
 const { WebSocketServer } = require('ws');
@@ -81,14 +80,14 @@ async function connectToSQLite() {
                         db.run(`
                             CREATE TABLE IF NOT EXISTS messages (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                senderPersistentId TEXT, -- Now references persistentUserId (can be 'admin_system' or actual user ID)
+                                senderPersistentId TEXT, -- Now references persistentUserId
                                 senderNickname TEXT,
                                 senderProfile TEXT, -- Stored as JSON string
                                 text TEXT,
                                 image TEXT, -- Base64 string
                                 fileName TEXT,
                                 timestamp INTEGER,
-                                messageType TEXT DEFAULT 'chatMessage', -- Type of message (chatMessage, systemAnnouncement, userStatusUpdate)
+                                messageType TEXT DEFAULT 'chatMessage', -- NEW: Type of message (chatMessage, systemAnnouncement, userStatusUpdate)
                                 FOREIGN KEY (senderPersistentId) REFERENCES users(persistentUserId) ON DELETE CASCADE
                             )
                         `, (err) => {
@@ -135,45 +134,41 @@ async function connectToSQLite() {
 // --- Load Initial Data from SQLite ---
 async function loadInitialData() {
     return new Promise((resolve, reject) => {
-        // Fetch messages
-        db.all("SELECT * FROM messages ORDER BY timestamp ASC", [], (err, msgRows) => {
+        db.all("SELECT * FROM messages ORDER BY timestamp ASC", [], (err, rows) => {
             if (err) {
                 console.error('Error loading messages from SQLite:', err.message);
                 return reject(err);
             }
-
             messages.length = 0; // Clear in-memory messages
-
-            // Add regular chat messages and announcements to the in-memory array
-            msgRows.forEach(row => {
+            let maxId = 0; // Track the maximum ID found in the database
+            rows.forEach(row => {
+                // Parse senderProfile back to object
                 if (row.senderProfile) {
                     try {
                         row.senderProfile = JSON.parse(row.senderProfile);
                     } catch (e) {
                         console.error("Error parsing senderProfile from DB:", e, row.senderProfile);
-                        row.senderProfile = {};
+                        row.senderProfile = {}; // Default to empty object on parse error
                     }
                 } else {
                     row.senderProfile = {};
                 }
                 messages.push(row);
-                if (row.id > nextMessageDbId) {
-                    nextMessageDbId = row.id + 1; // Update next ID based on message IDs
+                if (row.id > maxId) { // Update maxId
+                    maxId = row.id;
                 }
             });
+            nextMessageDbId = maxId + 1; // Set nextMessageDbId to be one greater than the highest existing ID
 
-            // Sort all messages (chat, announcements, user status) by timestamp
-            messages.sort((a, b) => a.timestamp - b.timestamp);
-
-            db.all("SELECT userId FROM blocked_users", [], (err, blockedRows) => {
+            db.all("SELECT userId FROM blocked_users", [], (err, rows) => {
                 if (err) {
                     console.error('Error loading blocked users from SQLite:', err.message);
                     return reject(err);
                 }
                 blockedUsers.clear(); // Clear in-memory set
-                blockedRows.forEach(row => blockedUsers.add(row.userId));
+                rows.forEach(row => blockedUsers.add(row.userId));
 
-                console.log(`Loaded ${messages.length} total messages and ${blockedUsers.size} blocked users from DB. Next message DB ID will be: ${nextMessageDbId}`);
+                console.log(`Loaded ${messages.length} messages and ${blockedUsers.size} blocked users from DB. Next message DB ID will be: ${nextMessageDbId}`);
                 resolve();
             });
         });
@@ -278,7 +273,7 @@ function setupWebSocketListeners() {
         // Messages array is already populated from DB on server startup.
         sendToClient(ws, 'initialData', {
             clientId: currentSessionId, // Send session ID to client
-            messages: messages, // This now includes chat messages, announcements, and user status updates
+            messages: messages, 
             users: Array.from(clients.values()).map(c => ({
                 id: c.sessionId, // Use session ID for display in chat client's user list
                 persistentUserId: c.persistentUserId, // Include persistent ID if known
@@ -289,6 +284,10 @@ function setupWebSocketListeners() {
             }))
         });
 
+        // Inform all chat clients that a new user has joined (optional, but good for chat)
+        // This will be updated with nickname once initialUserData is received.
+        // We no longer send a systemMessage here, but wait for initialUserData to send userStatusUpdate
+        // broadcastToChatClients('systemMessage', { text: `User ${currentSessionId} has joined the chat.` }); 
         sendAdminUpdate(); // Update all admin dashboards on new connection (for user joins/leaves)
 
         // Event listener for when the server receives a message from this specific client.
@@ -368,7 +367,7 @@ function setupWebSocketListeners() {
                             image: parsedMessage.payload.image || null, // Base64 string
                             fileName: parsedMessage.payload.fileName || null, // Image file name
                             timestamp: Date.now(),
-                            messageType: 'chatMessage', // Explicitly set message type
+                            messageType: 'chatMessage' // Explicitly set message type
                         };
 
                         // Save message to SQLite
@@ -412,8 +411,6 @@ function setupWebSocketListeners() {
                         break;
 
                     case 'adminLogin':
-                        // This is a placeholder for actual admin authentication.
-                        // For now, any password will grant admin access.
                         if (parsedMessage.payload.password === 'adminpass') { // Simple password check
                             currentClientInfo.type = 'admin'; // Update the client's type in the map
                             sendToClient(ws, 'systemMessage', { text: 'Logged in as Admin.' });
@@ -480,8 +477,7 @@ function setupWebSocketListeners() {
 
                                 // Add to in-memory messages array
                                 messages.push(announcementMessage);
-                                messages.sort((a, b) => a.timestamp - b.timestamp); // Keep sorted
-                                console.log(`Announcement added to in-memory array. Current total messages: ${messages.length}`);
+                                console.log(`Announcement added to in-memory array. Current messages in memory: ${messages.length}`);
 
                                 // Broadcast to all chat clients
                                 broadcastToChatClients('systemAnnouncement', { text: announcementText });
@@ -499,9 +495,9 @@ function setupWebSocketListeners() {
                             
                             // Delete from SQLite
                             await new Promise((resolve, reject) => {
-                                db.run(`DELETE FROM messages WHERE id = ?`, [messageIdToDelete], function(err) {
+                                db.run("DELETE FROM messages WHERE id = ?", [messageIdToDelete], function(err) {
                                     if (err) {
-                                        console.error(`Error deleting message from DB:`, err.message);
+                                        console.error("Error deleting message from DB:", err.message);
                                         reject(err);
                                     }
                                     else resolve(this.changes); // Number of rows deleted
@@ -521,7 +517,7 @@ function setupWebSocketListeners() {
                                     sendToClient(ws, 'systemMessage', { text: `Message ID ${messageIdToDelete} not found.` });
                                 }
                             }).catch(err => {
-                                console.error(`Error deleting message from DB (catch block):`, err.message);
+                                console.error("Error deleting message from DB (catch block):", err.message);
                                 sendToClient(ws, 'systemMessage', { text: 'Error deleting message.' });
                             });
                         } else {
@@ -545,13 +541,13 @@ function setupWebSocketListeners() {
                                 if (!blockedUsers.has(userIdToBlock)) {
                                     blockedUsers.add(userIdToBlock);
                                     // Save to blocked_users table
-                                    await new Promise((res, rej) => {
+                                    await new Promise((resolve, reject) => {
                                         db.run("INSERT INTO blocked_users (userId, timestamp) VALUES (?, ?)", [userIdToBlock, Date.now()], function(err) {
                                             if (err) {
                                                 console.error("Error blocking user in DB:", err.message);
-                                                rej(err);
+                                                reject(err);
                                             }
-                                            else res();
+                                            else resolve();
                                         });
                                     });
                                     console.log(`User (Persistent ID: ${userIdToBlock}) blocked and saved to DB.`);
@@ -573,13 +569,13 @@ function setupWebSocketListeners() {
                             const userIdToUnblock = parsedMessage.payload.userId; // This is the persistentUserId from admin client
                             if (blockedUsers.delete(userIdToUnblock)) {
                                 // Remove from blocked_users table
-                                await new Promise((res, rej) => {
+                                await new Promise((resolve, reject) => {
                                     db.run("DELETE FROM blocked_users WHERE userId = ?", [userIdToUnblock], function(err) {
                                         if (err) {
                                             console.error("Error unblocking user in DB:", err.message);
-                                            rej(err);
+                                            reject(err);
                                         }
-                                        else res();
+                                        else resolve();
                                     });
                                 });
                                 console.log(`User (Persistent ID: ${userIdToUnblock}) unblocked and removed from DB.`);
@@ -651,3 +647,4 @@ connectToSQLite().then(() => {
     console.error('Server startup failed:', err);
     process.exit(1);
 });
+
