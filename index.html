@@ -3,74 +3,192 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Chat</title>
+    <title>Eksu-hub Chat</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: "Inter", sans-serif;
-            background-color: #f0f2f5;
-            min-height: 100vh;
+        /* Base styles for full screen and responsiveness */
+        html, body {
+            height: 100%;
             margin: 0;
+            overflow: hidden; /* Prevent body scroll, let chatMessages handle it */
+            font-family: "Inter", sans-serif;
+            background-color: #f0f2f5; /* Light gray background */
+        }
+
+        body {
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-            box-sizing: border-box;
+            padding: 0; /* Remove padding for true full screen */
         }
-        .chat-container {
+
+        .chat-container { /* This now acts as the main chat wrapper, filling the screen */
             background-color: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 600px; /* Max width for desktop */
+            flex-grow: 1; /* Allows it to take all available vertical space */
             display: flex;
             flex-direction: column;
-            height: 85vh; /* Adjusted for better mobile fit, still flexible */
-            overflow: hidden;
+            overflow: hidden; /* Ensure content inside doesn't overflow */
+            border-radius: 0; /* Remove border-radius for full screen */
+            box-shadow: none; /* Remove box-shadow for full screen */
+            width: 100%; /* Ensure it takes full width */
+            max-width: 100%; /* On desktop, can set max-width if desired */
         }
-        @media (max-width: 768px) {
+
+        /* Responsive adjustments for larger screens */
+        @media (min-width: 768px) { /* Adjust for larger screens */
             .chat-container {
-                height: 95vh; /* Take more height on small screens */
-                max-width: 100%; /* Ensure full width */
-                margin: 0; /* Remove any side margins */
+                max-width: 800px; /* Example: Max width for desktop */
+                border-radius: 12px; /* Re-add border-radius for larger screens */
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Re-add shadow */
             }
             body {
-                padding: 10px; /* Reduce overall padding on mobile */
+                padding: 20px; /* Add padding back for desktop centering */
             }
         }
+
+
+        /* Dark Mode Styles */
+        body.dark-mode {
+            background-color: #1a202c; /* Dark background */
+        }
+        .dark-mode .chat-container {
+            background-color: #2d3748; /* Darker chat background */
+            color: #e2e8f0; /* Light text */
+        }
+        .dark-mode .chat-header {
+            background-color: #4a5568; /* Darker header */
+        }
+        .dark-mode .messages-area {
+            background-color: #2d3748; /* Darker message area */
+        }
+        .dark-mode .message-bubble.received {
+            background-color: #4a5568; /* Darker received bubble */
+            color: #e2e8f0; /* Light text */
+        }
+        .dark-mode .message-bubble.sent {
+            background-color: rgb(120, 160, 100); /* Slightly darker green for dark mode */
+            color: #e2e8f0; /* Dark text on light green */
+        }
+        .dark-mode .message-bubble.announcement {
+            background-color: #cc3700; /* Darker orange */
+        }
+        .dark-mode .message-bubble.status-update {
+            background-color: #6b7280;
+            color: #cbd5e0;
+        }
+        .dark-mode .message-input-area {
+            background-color: #2d3748; /* Darker input area */
+            border-top-color: #4a5568;
+        }
+        .dark-mode .message-input {
+            background-color: #4a5568; /* Darker input field */
+            color: #e2e8f0;
+            border-color: #6b7280;
+        }
+        .dark-mode .message-input::placeholder {
+            color: #a0aec0;
+        }
+        .dark-mode .send-button, .dark-mode .upload-button, .dark-mode .emoji-button, .dark-mode .theme-toggle-button {
+            background-color: #667eea; /* Lighter indigo for dark mode */
+        }
+        .dark-mode .send-button:hover, .dark-mode .upload-button:hover, .dark-mode .emoji-button:hover, .dark-mode .theme-toggle-button:hover {
+            background-color: #5a67d8;
+        }
+        .dark-mode .modal-content {
+            background-color: #2d3748;
+            color: #e2e8f0;
+        }
+        .dark-mode .modal-content h2, .dark-mode .modal-content h3 {
+            color: #e2e8f0;
+        }
+        .dark-mode .modal-content input,
+        .dark-mode .modal-content textarea,
+        .dark-mode .modal-content select {
+            background-color: #4a5568;
+            color: #e2e8f0;
+            border-color: #6b7280;
+        }
+        .dark-mode .modal-content button {
+            background-color: #667eea;
+        }
+        .dark-mode .modal-content button:hover {
+            background-color: #5a67d8;
+        }
+        .dark-mode .modal-content .close-button {
+            color: #a0aec0;
+        }
+        .dark-mode .modal-content .close-button:hover {
+            color: #e2e8f0;
+        }
+        .dark-mode .loading-indicator,
+        .dark-mode .text-gray-500,
+        .dark-mode .text-gray-600 {
+            color: #a0aec0;
+        }
+        .dark-mode .font-semibold.text-blue-700 {
+            color: #90cdf4; /* Lighter blue for nicknames */
+        }
+        .dark-mode .day-divider {
+            color: #a0aec0;
+            background-color: #4a5568;
+        }
+
+
         .chat-header {
-            background-color: #4f46e5; /* Indigo-600 */
-            color: white;
+            background: rgba(222, 222, 221, 0.1); 
+filter:blur(1px);
+            color: gray;
             padding: 1rem;
-            border-top-left-radius: 12px;
-            border-top-right-radius: 12px;
             font-size: 1.25rem;
             font-weight: bold;
             text-align: center;
+            flex-shrink: 0; /* Prevent header from shrinking */
+        }
+         .chat-header:hover{
+            background: rgba(222, 222, 221, 0.1); 
+filter:blur(0.2px);
+            color: gray;
+            padding: 1rem;
+            font-size: 1.25rem;
+            font-weight: bold;
+            text-align: center;
+            flex-shrink: 0; /* Prevent header from shrinking */
+        }
+        @media (min-width: 768px) {
+            .chat-header {
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+            }
         }
         .messages-area {
             flex-grow: 1;
-            padding: 1rem;
+            padding: 0.5rem 1rem; /* Slightly reduced vertical padding */
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px; /* Reduced gap between bubbles */
             background-color: #eef2ff; /* Indigo-50 */
+            scroll-behavior: smooth; /* Smooth scrolling for new messages */
         }
         .message-bubble {
             max-width: 80%;
-            padding: 0.75rem 1rem;
+            padding: 0.4rem 0.8rem; /* Reduced vertical padding for smaller height */
             border-radius: 18px;
-            line-height: 1.4;
+            line-height: 1.3; /* Slightly tighter line height */
             word-wrap: break-word;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            /* Removed transition for opacity */
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); /* Slightly softer shadow */
+            transition: transform 0.2s ease-out, opacity 0.2s ease-out; /* For message animations */
+            transform: translateY(10px);
+            opacity: 0;
+        }
+        .message-bubble.show { /* Class to trigger animation */
+            transform: translateY(0);
+            opacity: 1;
         }
         .message-bubble.sent {
             align-self: flex-end;
-            background-color: #6366f1; /* Indigo-500 */
-            color: white;
+            background-color: rgb(217, 245, 197); /* The light greenish-yellow */
+            color: #374151; /* Dark gray for text on light background */
             border-bottom-right-radius: 4px;
         }
         .message-bubble.received {
@@ -85,44 +203,63 @@
             color: white;
             text-align: center;
             font-weight: bold;
-            padding: 0.75rem 1.5rem;
+            padding: 0.6rem 1.2rem; /* Adjusted padding */
             border-radius: 20px;
             max-width: 90%;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
         }
         .message-bubble.status-update { /* User join/leave style */
             align-self: center;
             background-color: #d1d5db; /* Light gray */
             color: #4b5563; /* Darker gray text */
             text-align: center;
-            font-size: 0.9rem;
-            padding: 0.5rem 1rem;
+            font-size: 0.85rem; /* Slightly smaller font */
+            padding: 0.4rem 0.8rem; /* Adjusted padding */
             border-radius: 15px;
             max-width: 70%;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        }
+
+        /* Day Divider Style */
+        .day-divider {
+            align-self: center;
+            margin: 15px 0;
+            padding: 5px 15px;
+            background-color: #e0e7ff; /* Light indigo */
+            color: #4f46e5; /* Indigo text */
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
-        /* Removed .message-bubble.pending style */
 
         .message-input-area {
             display: flex;
-            padding: 1rem;
+            padding: 0.75rem 1rem; /* Slightly reduced padding */
             border-top: 1px solid #e2e8f0;
             background-color: #ffffff;
-            gap: 10px;
+            gap: 8px; /* Reduced gap */
+            align-items: flex-end;
+            flex-shrink: 0;
         }
         .message-input {
             flex-grow: 1;
-            padding: 0.75rem;
+            padding: 0.6rem 0.75rem; /* Reduced padding */
             border: 1px solid #d1d5db;
             border-radius: 8px;
-            font-size: 1rem;
-            resize: none; /* Prevent manual resizing */
-            overflow-y: hidden; /* Hide scrollbar initially */
+            font-size: 0.95rem; /* Slightly smaller font */
+            resize: none;
+            overflow-y: hidden;
+            min-height: 38px; /* Adjusted minimum height */
+            line-height: 1.4; /* Adjusted line height */
+            max-height: 120px; /* Limit max height to prevent excessive growth */
         }
-        .send-button, .upload-button {
+        .send-button, .upload-button, .emoji-button, .theme-toggle-button {
             background-color: #4f46e5; /* Indigo-600 */
             color: white;
-            padding: 0.75rem 1.25rem;
+            padding: 0.6rem 0.5rem; /* Adjusted padding */
             border-radius: 8px;
             cursor: pointer;
             font-weight: bold;
@@ -131,13 +268,15 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            flex-shrink: 0; /* Prevent shrinking */
+            flex-shrink: 0;
+            height: 38px; /* Match input min-height for vertical alignment */
+            width: 38px; /* Make buttons square */
         }
-        .send-button:hover, .upload-button:hover {
+        .send-button:hover, .upload-button:hover, .emoji-button:hover, .theme-toggle-button:hover {
             background-color: #4338ca; /* Indigo-700 */
             transform: translateY(-1px);
         }
-        .send-button:active, .upload-button:active {
+        .send-button:active, .upload-button:active, .emoji-button:active, .theme-toggle-button:active {
             transform: scale(0.98);
         }
         .upload-button input[type="file"] {
@@ -150,7 +289,64 @@
             margin-top: 5px;
             display: block;
         }
-        /* All Modals */
+
+        /* Emoji Picker Modal */
+        .emoji-picker-modal {
+            position: absolute;
+            bottom: 70px; /* Above the input area */
+            left: 10px; /* Positioned left */
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(7, 1fr); /* Adjust columns as needed */
+            gap: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .dark-mode .emoji-picker-modal {
+            background-color: #4a5568;
+        }
+        .emoji-picker-modal button {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+            transition: background-color 0.1s;
+        }
+        .emoji-picker-modal button:hover {
+            background-color: #e2e8f0;
+        }
+        .dark-mode .emoji-picker-modal button:hover {
+            background-color: #6b7280;
+        }
+
+        /* New Messages Indicator */
+        .new-messages-indicator {
+            position: absolute;
+            bottom: 80px; /* Above input and emoji picker */
+            right: 20px;
+            background-color: #4f46e5;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            z-index: 90;
+            display: none; /* Hidden by default */
+            transition: opacity 0.3s ease-in-out;
+        }
+        .dark-mode .new-messages-indicator {
+            background-color: #667eea;
+        }
+
+
+        /* All Modals (Existing styles, ensure they are still centered) */
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -189,8 +385,8 @@
             border: 1px solid #d1d5db;
             border-radius: 8px;
             font-size: 1rem;
-            width: 100%; /* Ensure inputs take full width */
-            box-sizing: border-box; /* Include padding in width */
+            width: 100%;
+            box-sizing: border-box;
         }
         .modal-content button {
             background-color: #4f46e5;
@@ -222,37 +418,126 @@
         .hidden {
             display: none;
         }
-        .loading-indicator { /* Style for loading message */
+        .loading-indicator {
             text-align: center;
             color: #6b7280;
             font-style: italic;
             padding: 10px;
         }
+        
+        /* --- ANIMATION STYLES --- */
+
+        /* Shake Animation (for 'death' / 'fuck') */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-5px); }
+            40%, 80% { transform: translateX(5px); }
+        }
+        .shake-active {
+            animation: shake 0.2s ease-in-out infinite;
+        }
+
+        /* Glitter/Sparkle Animation (for 'movie' / 'peace') */
+        @keyframes glitter-fade-in {
+            0% { opacity: 0; transform: scale(0.5); }
+            50% { opacity: 1; transform: scale(1); }
+            100% { opacity: 0; transform: scale(1.5); }
+        }
+        .glitter-star {
+            position: fixed;
+            font-size: 24px; /* Adjust size of stars */
+            color: gold;
+            text-shadow: 0 0 5px orange;
+            pointer-events: none; /* Don't interfere with clicks */
+            z-index: 999;
+            animation: glitter-fade-in 1.5s ease-out forwards; /* Fade in and out */
+        }
+
+        /* Love Emojis Animation (for 'love') */
+        @keyframes rise-and-fade {
+            0% { transform: translateY(0) scale(0.8); opacity: 0; }
+            20% { opacity: 1; }
+            100% { transform: translateY(-100vh) scale(1.2); opacity: 0; }
+        }
+        .love-emoji {
+            position: fixed;
+            bottom: -50px; /* Start below screen */
+            font-size: 30px; /* Size of heart emojis */
+            pointer-events: none;
+            z-index: 999;
+            animation: rise-and-fade 4s ease-out forwards; /* Rise and fade */
+            opacity: 0; /* Hidden initially */
+        }
+
+        /* Confetti Animation (for 'happy', 'monpress') */
+        @keyframes confetti-fall {
+            0% { opacity: 0; transform: translate(0, -20px) rotate(0deg); }
+            10% { opacity: 1; }
+            100% { opacity: 0; transform: translate(var(--x), var(--y)) rotate(var(--deg)); }
+        }
+        .confetti {
+            position: fixed;
+            z-index: 9999;
+            pointer-events: none;
+            opacity: 0;
+            animation: confetti-fall var(--duration) ease-out forwards;
+        }
+
+        /* Droplet Animation (for 'sad') */
+        @keyframes droplet-fall {
+            0% { opacity: 0; transform: translateY(-10px) scale(0.8); }
+            20% { opacity: 1; }
+            100% { opacity: 0; transform: translateY(100vh) scale(1.2); }
+        }
+        .droplet {
+            position: fixed;
+            z-index: 9999;
+            pointer-events: none;
+            opacity: 0;
+            animation: droplet-fall var(--duration) ease-in forwards;
+        }
+
     </style>
 </head>
-<body class="bg-gray-100 p-4">
+<body class="bg-gray-100">
     <div class="chat-container">
-        <div class="chat-header">
-            WebSocket Chat
+        <div class="chat-header flex justify-between items-center">
+            <span class="flex-grow text-center">Anonym < / > Chat</span>
+            <button id="themeToggleButton" class="theme-toggle-button ml-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+                    <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM12 18a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V18a.75.75 0 0 1 .75-.75ZM5.929 17.395a.75.75 0 0 0-1.06 1.06l1.59 1.591a.75.75 0 0 0 1.061-1.06l-1.591-1.59ZM18 12a.75.75 0 0 1 .75-.75h2.25a.75.75 0 0 1 0 1.5H18a.75.75 0 0 1-.75-.75ZM6 12a.75.75 0 0 1-.75.75H3a.75.75 0 0 1 0-1.5h2.25a.75.75 0 0 1 .75.75ZM17.395 18.894a.75.75 0 0 0 1.06-1.06l-1.591-1.59a.75.75 0 0 0-1.06 1.061l1.591 1.59ZM6.166 5.929a.75.75 0 0 0-1.06-1.06l-1.59 1.591a.75.75 0 1 0 1.06 1.061l1.591-1.59Z" />
+                </svg>
+            </button>
         </div>
-        <div id="messagesContainer" class="messages-area">
+        <div id="chatMessages" class="messages-area">
             <div id="loadingMessages" class="loading-indicator">Messages are loading...</div>
-            <!-- Messages will be displayed here -->
         </div>
-        <div class="message-input-area">
-            <input type="text" id="messageInput" class="message-input" placeholder="Type your message...">
+        <div class="message-input-area relative">
+            <button id="emojiButton" class="emoji-button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+                    <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25ZM12.75 16.25a.75.75 0 0 0-1.5 0h1.5ZM10.5 8.25a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0V8.25ZM15 8.25a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0V8.25Z" clip-rule="evenodd" />
+                </svg>
+            </button>
+            <textarea id="messageInput" class="message-input" placeholder="Type your message..." rows="1"></textarea>
             <label for="imageUpload" class="upload-button">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
-                    <path fill-rule="evenodd" d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.69a1.5 1.5 0 0 0-2.12 0L9.47 16.06a2.25 2.25 0 0 1-3.18 0l-2.7-2.7Z" clip-rule="evenodd" />
-                    <path fill-rule="evenodd" d="M12.97 3.97a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H9.75a.75.75 0 0 1 0-1.5h5.69l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                    <path fill-rule="evenodd" d="M12 5.25a.75.75 0 0 1 .75.75v5.25H18a.75.75 0 0 1 0 1.5h-5.25V18a.75.75 0 0 1-1.5 0v-5.25H6a.75.75 0 0 1 0-1.5h5.25V6a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" />
                 </svg>
                 <input type="file" id="imageUpload" accept="image/*">
             </label>
-            <button id="sendButton" class="send-button">Send</button>
+            <button id="sendButton" class="send-button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+                    <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
+                </svg>
+            </button>
+            <div id="emojiPicker" class="emoji-picker-modal hidden"></div>
         </div>
     </div>
 
-    <!-- User Profile Display Modal -->
+    <div id="newMessagesIndicator" class="new-messages-indicator hidden">
+        New Messages 👇
+    </div>
+
     <div id="userProfileDisplayModal" class="modal-overlay hidden">
         <div class="modal-content profile-modal-content relative">
             <button class="close-button" id="closeUserProfileModal">&times;</button>
@@ -262,7 +547,6 @@
         </div>
     </div>
 
-    <!-- User Signup Modal -->
     <div id="signupModal" class="modal-overlay hidden">
         <div class="modal-content signup-modal-content">
             <h2>Welcome!</h2>
@@ -281,7 +565,7 @@
     </div>
 
     <script>
-        const messagesContainer = document.getElementById('messagesContainer');
+        const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const imageUpload = document.getElementById('imageUpload');
@@ -301,15 +585,50 @@
         const displayInterest = document.getElementById('displayInterest');
         const displayGender = document.getElementById('displayGender');
 
+        // New elements
+        const emojiButton = document.getElementById('emojiButton');
+        const emojiPicker = document.getElementById('emojiPicker');
+        const newMessagesIndicator = document.getElementById('newMessagesIndicator');
+        const themeToggleButton = document.getElementById('themeToggleButton');
+
         let ws;
         let persistentUserId = localStorage.getItem('chatPersistentUserId');
         let userProfile = JSON.parse(localStorage.getItem('chatUserProfile')) || {};
 
         // --- IMPORTANT: YOUR DEPLOYED RAILWAY.APP URL ---
-        const WEBSOCKET_SERVER_URL = 'wss://eksuhubserver-production-2f17.up.railway.app'; 
+        const WEBSOCKET_SERVER_URL = 'wss://eksuhubserver-production-2f17.up.railway.app';
         // -----------------------------------------------------------------
 
-        // If no persistent user ID, generate one
+        // --- IndexedDB Constants ---
+        const DB_NAME = 'EksuChatDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'messages';
+        const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000; // Milliseconds in 3 days
+        // -----------------------------
+
+        let db; // Variable to hold the IndexedDB instance
+        let allDisplayedMessages = []; // In-memory array to store current messages, including loaded ones
+        let lastDisplayedDate = null; // For day divider logic
+        let isScrolledToBottom = true; // Track scroll position for new messages indicator
+
+        // --- THEME TOGGLE LOGIC (MAINTAINED) ---
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        document.body.classList.add(currentTheme + '-mode');
+
+        themeToggleButton.addEventListener('click', () => {
+            if (document.body.classList.contains('light-mode')) {
+                document.body.classList.remove('light-mode');
+                document.body.classList.add('dark-mode');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.body.classList.remove('dark-mode');
+                document.body.classList.add('light-mode');
+                localStorage.setItem('theme', 'light');
+            }
+        });
+        // --- END THEME TOGGLE LOGIC ---
+
+        // If no persistent user ID, generate one and store it
         if (!persistentUserId) {
             persistentUserId = crypto.randomUUID();
             localStorage.setItem('chatPersistentUserId', persistentUserId);
@@ -318,12 +637,215 @@
             console.log('Found existing persistent user ID:', persistentUserId);
         }
 
-        // Show signup modal if profile is incomplete
-        if (!userProfile.nickname || !userProfile.gender) {
-            signupModal.classList.remove('hidden');
-        } else {
-            connectWebSocket();
+        // --- IndexedDB Functions ---
+
+        /**
+         * Opens the IndexedDB database.
+         * Creates or upgrades the 'messages' object store with 'id' as primary key and 'timestamp' as an index.
+         * @returns {Promise<IDBDatabase>} A promise that resolves with the database instance.
+         */
+        function openDb() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                        objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                        console.log(`IndexedDB: Object store '${STORE_NAME}' created.`);
+                    }
+                };
+
+                request.onsuccess = (event) => {
+                    db = event.target.result;
+                    console.log('IndexedDB: Database opened successfully.');
+                    resolve(db);
+                };
+
+                request.onerror = (event) => {
+                    console.error('IndexedDB: Database error:', event.target.errorCode, event.target.error);
+                    reject(event.target.error);
+                };
+            });
         }
+
+        /**
+         * Adds a message to the IndexedDB.
+         * @param {Object} message - The message object to add.
+         * @returns {Promise<void>} A promise that resolves when the message is added.
+         */
+        function addMessageToDb(message) {
+            return new Promise((resolve, reject) => {
+                if (!db) {
+                    console.warn('IndexedDB not open yet for addMessageToDb. Trying to open...');
+                    openDb().then(() => addMessageToDb(message).then(resolve).catch(reject)).catch(reject);
+                    return;
+                }
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const objectStore = transaction.objectStore(STORE_NAME);
+                const request = objectStore.put(message); // Use put to overwrite if ID exists
+
+                request.onsuccess = () => {
+                    // console.log('IndexedDB: Message added/updated successfully:', message.id);
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    const error = event.target.error;
+                    console.error('IndexedDB: Error adding message:', error.name, error.message, 'Message data:', message);
+                    reject(error);
+                };
+            });
+        }
+
+        /**
+         * Retrieves all messages from IndexedDB, sorted by timestamp.
+         * @returns {Promise<Array<Object>>} A promise that resolves with an array of messages.
+         */
+        function getMessagesFromDb() {
+            return new Promise((resolve, reject) => {
+                if (!db) {
+                    console.warn('IndexedDB not open yet for getMessagesFromDb. Trying to open...');
+                    openDb().then(() => getMessagesFromDb().then(resolve).catch(reject)).catch(reject);
+                    return;
+                }
+
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const objectStore = transaction.objectStore(STORE_NAME);
+                const messages = [];
+
+                // Use the 'timestamp' index to retrieve messages in order
+                const index = objectStore.index('timestamp');
+                const request = index.openCursor();
+
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        messages.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        // console.log('IndexedDB: All messages retrieved.');
+                        resolve(messages);
+                    }
+                };
+
+                request.onerror = (event) => {
+                    console.error('IndexedDB: Error retrieving messages:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        }
+
+        /**
+         * Deletes old messages from IndexedDB based on the 3-day rolling window.
+         * @returns {Promise<void>} A promise that resolves when cleanup is complete.
+         */
+        function cleanOldMessages() {
+            return new Promise((resolve, reject) => {
+                if (!db) {
+                     console.warn('IndexedDB not open for cleanup. Trying to open...');
+                    openDb().then(() => cleanOldMessages().then(resolve).catch(reject)).catch(reject);
+                    return;
+                }
+
+                const threeDaysAgo = Date.now() - THREE_DAYS_MS;
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const objectStore = transaction.objectStore(STORE_NAME);
+                const index = objectStore.index('timestamp');
+                
+                // Create a range for timestamps less than or equal to threeDaysAgo
+                const range = IDBKeyRange.upperBound(threeDaysAgo);
+
+                const request = index.openCursor(range);
+                let deletedCount = 0;
+
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        objectStore.delete(cursor.primaryKey);
+                        deletedCount++;
+                        cursor.continue();
+                    } else {
+                        console.log(`IndexedDB: Cleaned up ${deletedCount} old messages.`);
+                        resolve();
+                    }
+                };
+
+                request.onerror = (event) => {
+                    console.error('IndexedDB: Error cleaning old messages:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        }
+
+        /**
+         * Deletes a specific message by its ID from IndexedDB.
+         * @param {string} messageId - The ID of the message to delete.
+         * @returns {Promise<void>} A promise that resolves when the message is deleted.
+         */
+        function deleteMessageFromDb(messageId) {
+            return new Promise((resolve, reject) => {
+                if (!db) {
+                     console.warn('IndexedDB not open for deletion. Trying to open...');
+                    openDb().then(() => deleteMessageFromDb(messageId).then(resolve).catch(reject)).catch(reject);
+                    return;
+                }
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const objectStore = transaction.objectStore(STORE_NAME);
+                const request = objectStore.delete(messageId);
+
+                request.onsuccess = () => {
+                    console.log(`IndexedDB: Message ID ${messageId} deleted.`);
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error('IndexedDB: Error deleting message:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        }
+        // --- End IndexedDB Functions ---
+
+        // Initial setup for messages area:
+        loadingMessagesIndicator.classList.remove('hidden');
+        loadingMessagesIndicator.textContent = 'Initializing chat...';
+
+        // Initialize IndexedDB and load messages
+        openDb().then(() => {
+            return cleanOldMessages(); // Clean up old messages first
+        }).then(() => {
+            return getMessagesFromDb(); // Then load current messages
+        }).then(messages => {
+            allDisplayedMessages = messages;
+            chatMessages.innerHTML = ''; // Clear initial loading indicator
+            lastDisplayedDate = null; // Reset for fresh render of initial DB messages
+            
+            // Render messages from IndexedDB - NO ANIMATIONS on initial load
+            allDisplayedMessages.forEach(msg => addMessageToUI(msg, false)); 
+            
+            chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom of initial load
+            loadingMessagesIndicator.classList.add('hidden');
+            console.log(`Loaded ${allDisplayedMessages.length} messages from IndexedDB.`);
+
+            // After loading local messages, proceed with WebSocket connection
+            if (!userProfile.nickname || !userProfile.gender) {
+                signupModal.classList.remove('hidden');
+            } else {
+                connectWebSocket();
+            }
+        }).catch(error => {
+            console.error('Failed to initialize IndexedDB or load messages:', error);
+            loadingMessagesIndicator.textContent = 'Error loading messages. Please refresh.';
+            // Proceed without cached messages if IndexedDB fails, but alert user
+            if (!userProfile.nickname || !userProfile.gender) {
+                signupModal.classList.remove('hidden');
+            } else {
+                connectWebSocket();
+            }
+        });
+
 
         signupButton.addEventListener('click', () => {
             const nickname = signupNicknameInput.value.trim();
@@ -332,7 +854,7 @@
 
             if (nickname && gender) {
                 userProfile = { nickname, interest, gender };
-                localStorage.setItem('chatUserProfile', JSON.stringify(userProfile));
+                localStorage.setItem('chatUserProfile', JSON.stringify(userProfile)); // Store user profile
                 signupModal.classList.add('hidden');
                 connectWebSocket();
             } else {
@@ -343,6 +865,7 @@
         closeUserProfileModalButton.addEventListener('click', () => {
             userProfileDisplayModal.classList.add('hidden');
         });
+
 
         function connectWebSocket() {
             ws = new WebSocket(WEBSOCKET_SERVER_URL);
@@ -358,39 +881,122 @@
                         gender: userProfile.gender
                     }
                 }));
-                loadingMessagesIndicator.classList.remove('hidden'); // Show loading indicator
-                loadingMessagesIndicator.textContent = 'Messages are loading...'; // Reset text
+
+                // Determine lastFetchTimestamp based on the latest message in `allDisplayedMessages`
+                // This array now contains messages from IndexedDB (if any)
+                let lastFetchTimestamp = 0;
+                if (allDisplayedMessages.length > 0) {
+                    // Ensure allDisplayedMessages is sorted before picking the last one
+                    allDisplayedMessages.sort((a, b) => a.timestamp - b.timestamp); 
+                    lastFetchTimestamp = allDisplayedMessages[allDisplayedMessages.length - 1].timestamp;
+                    console.log(`Requesting new messages since ${new Date(lastFetchTimestamp).toLocaleString()}`);
+                } else {
+                    console.log('No local history. Requesting all messages from server.');
+                }
+                loadingMessagesIndicator.classList.remove('hidden');
+                loadingMessagesIndicator.textContent = 'Fetching new messages...';
+
+                ws.send(JSON.stringify({
+                    type: 'requestInitialData',
+                    payload: {
+                        lastFetchTimestamp: lastFetchTimestamp
+                    }
+                }));
             };
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                console.log('Message from server:', data);
 
                 switch (data.type) {
                     case 'initialData':
-                        messagesContainer.innerHTML = ''; // Clear existing messages
-                        loadingMessagesIndicator.classList.add('hidden'); // Hide loading indicator
-                        // Loop through all messages and use the consolidated displayMessage
-                        data.payload.messages.forEach(msg => displayMessage(msg));
-                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        loadingMessagesIndicator.classList.add('hidden');
+                        const newMessagesFromServer = data.payload.messages; // These are messages *from the server*
+                        
+                        let shouldScrollToBottomAfterInitial = isScrolledToBottom;
+                        
+                        const messagesToAppendToUI = []; // Collect only truly new messages for appending
+                        
+                        // Process messages from server, adding only truly new ones to allDisplayedMessages and DB
+                        newMessagesFromServer.forEach(newMessage => {
+                            // Check if message ID already exists in our in-memory array
+                            const existingMessageIndex = allDisplayedMessages.findIndex(msg => msg.id === newMessage.id);
+                            if (existingMessageIndex === -1) {
+                                // It's a new message, add to our in-memory array
+                                allDisplayedMessages.push(newMessage);
+                                messagesToAppendToUI.push(newMessage); // Also collect for UI appending
+                                // Add to IndexedDB (asynchronously, don't wait for it)
+                                addMessageToDb(newMessage).catch(e => {
+                                    console.error('IndexedDB: Error adding new message from initialData:', e);
+                                });
+                            } else {
+                                // Message already exists in allDisplayedMessages.
+                                // If the server sends ALL messages, this prevents re-adding.
+                                // If server only sends NEW messages, this branch won't be hit often.
+                            }
+                        });
+                        
+                        // Sort the entire in-memory array to maintain chronological order
+                        // This is crucial for correct day dividers and lastFetchTimestamp
+                        allDisplayedMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+                        // If there are messages to append, add them to the UI
+                        if (messagesToAppendToUI.length > 0) {
+                            // Render new messages from server data - NO ANIMATIONS
+                            messagesToAppendToUI.forEach(msg => addMessageToUI(msg, false)); 
+                        }
+                        
+                        // Handle scrolling and new messages indicator based on collected new messages
+                        if (shouldScrollToBottomAfterInitial || messagesToAppendToUI.length > 0) {
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                            newMessagesIndicator.classList.add('hidden');
+                        } else {
+                            // Only show indicator if not scrolled to bottom AND new messages arrived
+                            if (messagesToAppendToUI.length > 0) {
+                                newMessagesIndicator.classList.remove('hidden');
+                            }
+                        }
+                        console.log(`Processed ${newMessagesFromServer.length} messages from server. Added ${messagesToAppendToUI.length} new messages to UI/DB. Total displayed: ${allDisplayedMessages.length} messages.`);
                         break;
+
                     case 'chatMessage':
-                        // Only display the message when it's received from the server
-                        // The clientTempId logic is removed as we no longer display pending messages
-                        displayMessage(data.payload);
-                        console.log(`Displayed confirmed message: ${data.payload.id}`);
-                        break;
-                    case 'systemMessage':
-                        displayGeneralSystemMessage(data.payload.text);
-                        break;
                     case 'systemAnnouncement':
-                        displayMessage(data.payload);
-                        break;
                     case 'userStatusUpdate':
-                        displayMessage(data.payload);
+                        // Add real-time message to in-memory array and IndexedDB
+                        if (!allDisplayedMessages.some(msg => msg.id === data.payload.id)) {
+                            allDisplayedMessages.push(data.payload);
+                            addMessageToDb(data.payload)
+                                .then(() => console.log(`IndexedDB: Added real-time message ${data.payload.id}`))
+                                .catch(e => console.error('IndexedDB: Error adding real-time message:', e));
+                            addMessageToUI(data.payload, true); // Auto-scroll for new real-time messages
+                            
+                            // --- TRIGGER ANIMATIONS ONLY FOR REAL-TIME INCOMING MESSAGES ---
+                            if (data.payload.text) { // Only check text messages for now
+                                checkAndTriggerAnimations(data.payload.text);
+                            }
+                            // -----------------------------------------------------------------
+                        } else {
+                            // If message already exists (e.g., echo from server), just ensure it's displayed
+                            const existingElement = chatMessages.querySelector(`[data-message-id="${data.payload.id}"]`);
+                            if (!existingElement) {
+                                addMessageToUI(data.payload, true);
+                                if (data.payload.text) {
+                                    checkAndTriggerAnimations(data.payload.text);
+                                }
+                            }
+                        }
                         break;
+
                     case 'messageDeleted':
                         removeMessage(data.payload.messageId);
+                        // Also remove from in-memory array and IndexedDB
+                        const indexToDelete = allDisplayedMessages.findIndex(msg => msg.id === data.payload.messageId);
+                        if (indexToDelete > -1) {
+                            allDisplayedMessages.splice(indexToDelete, 1);
+                            deleteMessageFromDb(data.payload.messageId)
+                                .then(() => console.log(`IndexedDB: Deleted message ${data.payload.messageId}`))
+                                .catch(e => console.error('IndexedDB: Error deleting message:', e));
+                            console.log(`Message ID ${data.payload.messageId} removed from in-memory display.`);
+                        }
                         break;
                     default:
                         console.warn('Unknown message type:', data.type);
@@ -401,6 +1007,7 @@
                 console.log('Disconnected from WebSocket server');
                 loadingMessagesIndicator.classList.remove('hidden');
                 loadingMessagesIndicator.textContent = 'Disconnected. Reconnecting...';
+                // Messages remain displayed from IndexedDB, new connection will fetch new ones
                 setTimeout(connectWebSocket, 3000);
             };
 
@@ -430,7 +1037,7 @@
                 reader.onload = (e) => {
                     const base64Image = e.target.result;
                     const messageText = messageInput.value.trim();
-                    
+
                     if (ws && ws.readyState === ws.OPEN) {
                         ws.send(JSON.stringify({
                             type: 'chatMessage',
@@ -438,15 +1045,19 @@
                                 text: messageText || null,
                                 image: base64Image,
                                 fileName: file.name
-                                // clientTempId is no longer sent as we don't display pending messages
                             }
                         }));
                         messageInput.value = '';
                         messageInput.style.height = 'auto';
                         imageUpload.value = '';
+
+                        // --- TRIGGER ANIMATIONS FOR SENT MESSAGES ---
+                        if (messageText) {
+                            checkAndTriggerAnimations(messageText);
+                        }
+                        // ---------------------------------------------
                     } else {
-                        alert('Not connected to chat server.');
-                        // No need to remove pending message as it's not displayed
+                        alert('Not connected to chat server. Please check your internet connection.');
                     }
                 };
                 reader.readAsDataURL(file);
@@ -462,57 +1073,129 @@
                     type: 'chatMessage',
                     payload: {
                         text: text
-                        // clientTempId is no longer sent as we don't display pending messages
                     }
                 }));
                 messageInput.value = '';
                 messageInput.style.height = 'auto';
+
+                // --- TRIGGER ANIMATIONS FOR SENT MESSAGES ---
+                checkAndTriggerAnimations(text);
+                // ---------------------------------------------
             } else {
-                alert('Not connected to chat server.');
-                // No need to remove pending message as it's not displayed
+                alert('Not connected to chat server. Please check your internet connection.');
             }
         }
+        
+        // --- addMessageToUI (design aspects maintained) ---
+        function addMessageToUI(msg, autoScroll = true) {
+            // Day Divider Logic
+            const messageDate = new Date(msg.timestamp);
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(today.getDate() - 1);
 
-        // displayMessage function no longer handles pending state
-        function displayMessage(msg) {
+            let dateString = messageDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            if (messageDate.toDateString() === today.toDateString()) {
+                dateString = 'Today';
+            } else if (messageDate.toDateString() === yesterday.toDateString()) {
+                dateString = 'Yesterday';
+            }
+
+            // Only add a day divider if the date has changed since the last message displayed
+            if (lastDisplayedDate !== dateString) {
+                const divider = document.createElement('div');
+                divider.classList.add('day-divider');
+                divider.textContent = dateString;
+                chatMessages.appendChild(divider);
+                lastDisplayedDate = dateString; // Update last displayed date
+            }
+
             const messageElement = document.createElement('div');
-            // messageElement.dataset.clientTempId is removed
             if (msg.id) {
                 messageElement.dataset.messageId = msg.id;
             }
 
-            if (msg.messageType === 'systemAnnouncement') {
+            const messageType = msg.messageType || 'chatMessage';
+            let messageTextContent = msg.text || ''; // Store text content for animation check
+
+            if (messageType === 'systemAnnouncement') {
                 messageElement.classList.add('message-bubble', 'announcement', 'my-2');
                 messageElement.textContent = msg.text;
-            } else if (msg.messageType === 'userStatusUpdate') {
+            } else if (messageType === 'userStatusUpdate') {
                 messageElement.classList.add('message-bubble', 'status-update', 'my-2');
-                messageElement.textContent = `${msg.nickname} has ${msg.status} the chat.`;
-            }
-            else { // Default to chatMessage
-                messageElement.classList.add('message-bubble', msg.senderPersistentId === persistentUserId ? 'sent' : 'received');
+                messageElement.textContent = `${msg.nickname || 'Unknown User'} has ${msg.status || 'joined/left'} the chat.`;
+            } else { // Default to chatMessage
+                messageElement.classList.add('message-bubble');
+
+                let senderProfileObj = {};
+                if (msg.senderProfile) {
+                    try {
+                        senderProfileObj = typeof msg.senderProfile === 'string' ? JSON.parse(msg.senderProfile) : msg.senderProfile;
+                    } catch (e) {
+                        console.error('Error parsing senderProfile:', e, msg.senderProfile);
+                        senderProfileObj = {};
+                    }
+                } else if (typeof msg.senderProfile === 'object' && msg.senderProfile !== null) {
+                    senderProfileObj = msg.senderProfile;
+                }
+
+                const senderNickname = msg.senderNickname || senderProfileObj.nickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`;
+                // Set timestamp. If msg.timestamp is invalid, it will be "Invalid Date".
+                const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Invalid Date';
                 
-                let messageContent = '';
+                let messageContentHTML = '';
                 if (msg.image) {
-                    messageContent += `<img src="${msg.image}" class="chat-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/100x100/A0A0A0/FFFFFF?text=Image+Load+Error';" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 5px;">`;
+                    messageContentHTML += `<img src="${msg.image}" class="chat-image" alt="Sent Image" onerror="this.onerror=null;this.src='https://placehold.co/100x100/A0A0A0/FFFFFF?text=Image+Load+Error';">`;
                 }
                 if (msg.text) {
-                    messageContent += `<p class="text-gray-800">${escapeHTML(msg.text)}</p>`;
+                    messageContentHTML += `<p>${escapeHTML(msg.text)}</p>`;
                 }
 
-                const senderNickname = msg.senderNickname || `User ${msg.senderPersistentId ? msg.senderPersistentId.substring(0,8) + '...' : 'Unknown'}`;
-                const timestamp = new Date(msg.timestamp).toLocaleTimeString();
+                if (msg.senderPersistentId === persistentUserId) {
+                    // Sent message
+                    messageElement.classList.add('sent');
+                    messageElement.innerHTML = `
+                        <div class="flex items-center text-sm text-gray-600 mb-1 justify-end">
+                            <span class="mr-2 text-xs">${timestamp}</span>
+                            <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(senderProfileObj)}' data-sender-id="${msg.senderPersistentId}">
+                                You
+                            </span>
+                        </div>
+                        <div class="bubble-content">
+                            ${messageContentHTML}
+                        </div>
+                    `;
+                } else {
+                    // Received message
+                    messageElement.classList.add('received');
+                    messageElement.innerHTML = `
+                        <div class="bubble-content">
+                            <div class="flex items-center text-sm text-gray-600 mb-1">
+                                <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(senderProfileObj)}' data-sender-id="${msg.senderPersistentId}">
+                                    ${senderNickname}
+                                </span>
+                                <span class="ml-2 text-xs">${timestamp}</span>
+                            </div>
+                            <div>
+                                ${messageContentHTML}
+                            </div>
+                        </div>
+                    `;
+                }
 
-                messageElement.innerHTML = `
-                    <div class="flex items-center text-sm text-gray-600 mb-1">
-                        <span class="font-semibold text-blue-700 cursor-pointer" data-sender-profile='${JSON.stringify(msg.senderProfile || {})}' data-sender-id="${msg.senderPersistentId}">
-                            ${senderNickname}
-                        </span>
-                        <span class="ml-2 text-xs">${timestamp}</span>
-                    </div>
-                    <div class="message-content-wrapper p-3 rounded-lg">
-                        ${messageContent}
-                    </div>
-                `;
+                // Apply text color for 'death' word
+                if (messageTextContent.toLowerCase().includes('death')) {
+                    const textP = messageElement.querySelector('p');
+                    if (textP) { // Ensure <p> element exists before adding class
+                        textP.classList.add('text-red-500', 'font-bold');
+                    }
+                }
+                
                 const senderNicknameSpan = messageElement.querySelector('.font-semibold.cursor-pointer');
                 if (senderNicknameSpan) {
                     senderNicknameSpan.addEventListener('click', (e) => {
@@ -525,27 +1208,46 @@
                     });
                 }
             }
-            messagesContainer.appendChild(messageElement);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            // --- HIDE MESSAGES WITH "User Unknown" OR "Invalid Date" ---
+            // This ensures messages with malformed data or missing timestamps are not displayed.
+            const elementText = messageElement.textContent || messageElement.innerText;
+            if (elementText.includes("User Unknown") || elementText.includes("Invalid Date")) {
+                messageElement.style.display = 'none';
+                console.warn('Hidden a message element due to "User Unknown" or "Invalid Date" in its content:', msg);
+            }
+            // -------------------------------------------------------------
+
+            chatMessages.appendChild(messageElement);
+            // Trigger animation for bubble appearance
+            setTimeout(() => messageElement.classList.add('show'), 10);
+
+            // Conditional auto-scroll
+            if (autoScroll) {
+                if (msg.senderPersistentId === persistentUserId || isScrolledToBottom) {
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    newMessagesIndicator.classList.add('hidden');
+                } else {
+                    newMessagesIndicator.classList.remove('hidden');
+                }
+            }
         }
+        // --- END addMessageToUI ---
 
         function displayGeneralSystemMessage(text) {
             const systemMessageElement = document.createElement('div');
             systemMessageElement.classList.add('text-center', 'text-gray-500', 'text-sm', 'my-2');
             systemMessageElement.textContent = text;
-            messagesContainer.appendChild(systemMessageElement);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            chatMessages.appendChild(systemMessageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         function removeMessage(messageId) {
-            const messageElement = messagesContainer.querySelector(`[data-message-id="${messageId}"]`);
+            const messageElement = chatMessages.querySelector(`[data-message-id="${messageId}"]`);
             if (messageElement) {
                 messageElement.remove();
             }
         }
-
-        // removeMessageByClientTempId is no longer needed
-        // function removeMessageByClientTempId(clientTempId) { ... }
 
         function showUserProfile(profile) {
             displayNickname.textContent = profile.nickname || 'N/A';
@@ -559,6 +1261,203 @@
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
         }
+
+        // --- EMOJI PICKER LOGIC (MAINTAINED) ---
+        const emojis = ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😩', '😫', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'];
+
+        emojis.forEach(emoji => {
+            const button = document.createElement('button');
+            button.textContent = emoji;
+            button.addEventListener('click', () => {
+                messageInput.value += emoji;
+                emojiPicker.classList.add('hidden'); // Hide after selection
+                messageInput.focus(); // Keep focus on input
+                // Adjust textarea height after adding emoji
+                messageInput.style.height = 'auto';
+                messageInput.style.height = messageInput.scrollHeight + 'px';
+            });
+            emojiPicker.appendChild(button);
+        });
+
+        emojiButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent click from immediately closing it
+            emojiPicker.classList.toggle('hidden');
+        });
+
+        // Close emoji picker if clicked outside
+        document.addEventListener('click', (event) => {
+            if (!emojiPicker.contains(event.target) && !emojiButton.contains(event.target)) {
+                emojiPicker.classList.add('hidden');
+            }
+        });
+        // --- END EMOJI PICKER LOGIC ---
+
+        // --- NEW MESSAGES INDICATOR LOGIC (MAINTAINED) ---
+        chatMessages.addEventListener('scroll', () => {
+            const tolerance = 5;
+            isScrolledToBottom = (chatMessages.scrollHeight - chatMessages.clientHeight) <= (chatMessages.scrollTop + tolerance);
+            if (isScrolledToBottom) {
+                newMessagesIndicator.classList.add('hidden');
+            }
+        });
+
+        newMessagesIndicator.addEventListener('click', () => {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            newMessagesIndicator.classList.add('hidden');
+        });
+        // --- END NEW MESSAGES INDICATOR LOGIC ---
+
+        // --- BASIC BROWSER NOTIFICATION LOGIC (MAINTAINED) ---
+        function requestNotificationPermission() {
+            if (!("Notification" in window)) {
+                console.warn("This browser does not support desktop notification");
+            } else if (Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        }
+
+        signupButton.addEventListener('click', () => {
+            if (signupNicknameInput.value.trim() && signupGenderSelect.value) {
+                requestNotificationPermission();
+            }
+        });
+        // --- END BASIC BROWSER NOTIFICATION LOGIC ---
+
+        // --- WORD-TRIGGERED ANIMATIONS ---
+        const animationTriggers = [
+            { word: 'death', type: 'shake', duration: 2000, color: 'text-red-500' },
+            { word: 'movie', type: 'glitter', count: 15, duration: 4000 },
+            { word: 'love', type: 'love_emojis', count: 20, duration: 4000 },
+            { word: 'happy', type: 'confetti', count: 50, duration: 3000 },
+            { word: 'monpress', type: 'confetti', count: 50, duration: 3000 }, // Assuming positive/impressive
+            { word: 'sad', type: 'droplet', count: 30, duration: 3000 },
+            { word: 'peace', type: 'glitter', count: 15, duration: 4000 },
+            { word: 'fuck', type: 'shake', duration: 2000 }
+        ];
+
+        function checkAndTriggerAnimations(messageText) {
+            const lowerCaseText = messageText.toLowerCase();
+            animationTriggers.forEach(trigger => {
+                if (lowerCaseText.includes(trigger.word)) {
+                    switch (trigger.type) {
+                        case 'shake':
+                            triggerShakeAnimation(trigger.duration);
+                            break;
+                        case 'glitter':
+                            triggerGlitterAnimation(trigger.count, trigger.duration);
+                            break;
+                        case 'love_emojis':
+                            triggerLoveAnimation(trigger.count, trigger.duration);
+                            break;
+                        case 'confetti':
+                            triggerConfettiAnimation(trigger.count, trigger.duration);
+                            break;
+                        case 'droplet':
+                            triggerDropletAnimation(trigger.count, trigger.duration);
+                            break;
+                    }
+                }
+            });
+        }
+
+        function triggerShakeAnimation(duration) {
+            const body = document.body;
+            body.classList.add('shake-active');
+            setTimeout(() => {
+                body.classList.remove('shake-active');
+            }, duration);
+        }
+
+        function triggerGlitterAnimation(count, duration) {
+            const area = document.body;
+            for (let i = 0; i < count; i++) {
+                const star = document.createElement('span');
+                star.textContent = ['⭐',];
+                star.classList.add('glitter-star');
+                star.style.left = `${Math.random() * 150}vw`;
+                star.style.top = `${Math.random() * 100}vh`;
+                star.style.animationDuration = `${duration / 1000}s`;
+                area.appendChild(star);
+
+                star.addEventListener('animationend', () => star.remove());
+            }
+        }
+
+        function triggerLoveAnimation(count, duration) {
+            const area = document.body;
+            for (let i = 0; i < count; i++) {
+                const heart = document.createElement('span');
+                heart.textContent = '❤️';
+                heart.classList.add('love-emoji');
+                heart.style.left = `${Math.random() * 100}vw`;
+                heart.style.animationDuration = `${duration / 1000}s`;
+                heart.style.animationDelay = `${Math.random() * 0.5}s`;
+                area.appendChild(heart);
+
+                heart.addEventListener('animationend', () => heart.remove());
+            }
+        }
+
+        function triggerConfettiAnimation(count, duration) {
+            const colors = ['#f06292', '#81c784', '#64b5f6', '#ffd54f', '#ba68c8', '#ff9800', '#cddc39']; // More colors
+            const area = document.body;
+            for (let i = 0; i < count; i++) {
+                const confetti = document.createElement('div');
+                const size = Math.random() * 8 + 4; // 4-12px
+                confetti.style.width = `${size}px`;
+                confetti.style.height = `${size * 1.5}px`; // Rectangular for variety
+                confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                confetti.style.position = 'fixed';
+                confetti.style.left = `${Math.random() * 100}vw`;
+                confetti.style.top = `-20px`; // Start above screen
+                confetti.style.opacity = '0'; 
+                confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
+                confetti.style.zIndex = '9999';
+                area.appendChild(confetti);
+
+                const finalX = (Math.random() * 200) - 100; // -100 to 100
+                const finalY = window.innerHeight + (Math.random() * 100) + 50; // Fall off screen
+                const finalDeg = Math.random() * 720 + 360; // More spinning
+
+                confetti.style.setProperty('--x', `${finalX}px`);
+                confetti.style.setProperty('--y', `${finalY}px`);
+                confetti.style.setProperty('--deg', `${finalDeg}deg`);
+                confetti.style.setProperty('--duration', `${duration / 1000}s`);
+
+                setTimeout(() => {
+                    confetti.classList.add('confetti'); // Add class to trigger animation
+                }, 10);
+
+                confetti.addEventListener('animationend', () => confetti.remove());
+            }
+        }
+
+        function triggerDropletAnimation(count, duration) {
+            const colors = ['#90caf9', '#64b5f6', '#42a5f5', '#2196f3', '#1976d2']; // Shades of blue
+            const area = document.body;
+            for (let i = 0; i < count; i++) {
+                const droplet = document.createElement('div');
+                droplet.style.width = '5px';
+                droplet.style.height = '10px';
+                droplet.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                droplet.style.borderRadius = '50% 50% 50% 0'; // Tear drop shape
+                droplet.style.position = 'fixed';
+                droplet.style.left = `${Math.random() * 100}vw`;
+                droplet.style.bottom = `-10px`; // Start just below screen
+                droplet.style.opacity = '0';
+                droplet.style.zIndex = '9999';
+                area.appendChild(droplet);
+                
+                droplet.style.setProperty('--duration', `${duration / 1000}s`);
+
+                setTimeout(() => {
+                    droplet.classList.add('droplet'); // Add class to trigger animation
+                }, 10);
+
+                droplet.addEventListener('animationend', () => droplet.remove());
+            }
+        }
+        // --- END WORD-TRIGGERED ANIMATIONS ---
     </script>
 </body>
 </html>
