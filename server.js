@@ -234,8 +234,7 @@ async function sendAdminUpdate(specificAdminWs = null) {
 }
 
 // --- WebSocket Server Event Listener ---
-function setupWebSocketListeners() {
-    // Note: `wss` is not yet defined here, but will be after the database connection is established.
+function setupWebSocketListeners(wss) { // <-- FIX: Pass 'wss' as a parameter here
     wss.on('connection', function connection(ws) {
         const currentSessionId = nextSessionId++;
         const clientInfo = { sessionId: currentSessionId, ws: ws, type: 'chat', userProfile: {}, persistentUserId: null };
@@ -539,7 +538,6 @@ function deleteOldMessages() {
     });
 }
 
-
 // --- STARTUP SEQUENCE ---
 
 const PORT = process.env.PORT || 8080;
@@ -548,8 +546,8 @@ connectToSQLite().then(() => {
     return loadInitialData();
 }).then(() => {
     console.log('Initial data loaded. Server ready.');
-    const wss = new WebSocketServer({ port: PORT });
-    setupWebSocketListeners();
+    const wss = new WebSocketServer({ port: PORT }); // <-- FIX: Define wss here
+    setupWebSocketListeners(wss); // <-- FIX: Pass wss to the function
     console.log(`WebSocket server started on port ${PORT}`);
     setInterval(deleteOldMessages, 24 * 60 * 60 * 1000);
     console.log('Periodic message cleanup job scheduled to run every 24 hours.');
