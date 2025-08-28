@@ -235,6 +235,7 @@ async function sendAdminUpdate(specificAdminWs = null) {
 
 // --- WebSocket Server Event Listener ---
 function setupWebSocketListeners() {
+    // Note: `wss` is not yet defined here, but will be after the database connection is established.
     wss.on('connection', function connection(ws) {
         const currentSessionId = nextSessionId++;
         const clientInfo = { sessionId: currentSessionId, ws: ws, type: 'chat', userProfile: {}, persistentUserId: null };
@@ -538,11 +539,12 @@ function deleteOldMessages() {
     });
 }
 
+
 // --- STARTUP SEQUENCE ---
 
 const PORT = process.env.PORT || 8080;
 
-ConnectToSQLite().then(() => {
+connectToSQLite().then(() => {
     return loadInitialData();
 }).then(() => {
     console.log('Initial data loaded. Server ready.');
