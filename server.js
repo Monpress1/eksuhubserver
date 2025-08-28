@@ -539,7 +539,10 @@ function deleteOldMessages() {
 }
 
 // --- STARTUP SEQUENCE ---
-connectToSQLite().then(() => {
+
+const PORT = process.env.PORT || 8080;
+
+ConnectToSQLite().then(() => {
     return loadInitialData();
 }).then(() => {
     console.log('Initial data loaded. Server ready.');
