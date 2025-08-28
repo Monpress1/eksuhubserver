@@ -662,8 +662,8 @@ function setupWebSocketListeners() {
             }
         });
 
-        // Event listener for when a client disconnects.
-        wss.on('close', async () => { // Made async to await DB operations
+        // This is the CORRECT place for the 'close' event listener for an individual client
+        ws.on('close', async () => { // Made async to await DB operations
             const disconnectedClientInfo = clients.get(currentSessionId);
             if (disconnectedClientInfo && disconnectedClientInfo.persistentUserId) { // Use persistentUserId
                 // Update lastSeen for user in DB
@@ -698,14 +698,43 @@ function setupWebSocketListeners() {
     });
 }
 
+// ----------------------------------------------------
+// --- NEW CODE ADDED TO IMPLEMENT THE 2-DAY CLEANUP ---
+// ----------------------------------------------------
 
-// Connect to SQLite and load data, then start WebSocket listeners
+// Function to delete old messages from the database and the in-memory array
+function deleteOldMessages() {
+    // Calculate the timestamp for two days ago
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
+
+    // Delete messages from the database that are older than two days
+    db.run("DELETE FROM messages WHERE timestamp < ?", [twoDaysAgo], function(err) {
+        if (err) {
+            console.error("Error deleting old messages from DB:", err.message);
+        } else {
+            console.log(`Successfully deleted ${this.changes} old messages from the database.`);
+            // After deleting from the DB, clean up the in-memory array as well
+            const initialLength = messages.length;
+            const newMessages = messages.filter(msg => msg.timestamp >= twoDaysAgo);
+            messages.length = 0; // Clear the old array
+            messages.push(...newMessages); // Push back the new messages
+            console.log(`Removed ${initialLength - messages.length} messages from the in-memory array.`);
+        }
+    });
+}
+
+// --- STARTUP SEQUENCE ---
+// Connect to SQLite and load data, then start WebSocket listeners and the cleanup job
 connectToSQLite().then(() => {
     return loadInitialData();
 }).then(() => {
     console.log('Initial data loaded. Server ready.');
     setupWebSocketListeners(); // ONLY setup listeners AFTER DB is ready
     console.log(`WebSocket server started on port ${PORT}`); // Moved this log here
+    // Start the periodic cleanup job to run every 24 hours
+    // The interval is in milliseconds: 24 hours * 60 minutes * 60 seconds * 1000 milliseconds
+    setInterval(deleteOldMessages, 24 * 60 * 60 * 1000);
+    console.log('Periodic message cleanup job scheduled to run every 24 hours.');
 }).catch(err => {
     console.error('Server startup failed:', err);
     process.exit(1);
