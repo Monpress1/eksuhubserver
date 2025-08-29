@@ -20,12 +20,11 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId TEXT,
-    username TEXT,
     content TEXT,
     image TEXT,
     timestamp INTEGER,
     readBy TEXT DEFAULT '[]'
-  )`); // Added 'readBy' column to store read receipts
+  )`);
 
   db.run(`CREATE TABLE IF NOT EXISTS blocked (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,9 +45,9 @@ const wss = new WebSocket.Server({ port: 8080 }, () =>
 
 let clients = new Map(); // ws -> { id, name }
 
-// --- New: In-memory state for typing indicators ---
-const usersTyping = new Map(); // stores userId -> true/false
-const TYPING_TIMEOUT = 3000; // 3 seconds
+// --- In-memory state for typing indicators ---
+const usersTyping = new Map();
+const TYPING_TIMEOUT = 3000;
 
 // ================== Helpers ==================
 function send(ws, type, data) {
@@ -66,12 +65,30 @@ function broadcast(type, data, senderWs = null) {
 }
 
 function loadHistory(ws) {
-  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-  db.all("SELECT * FROM messages WHERE timestamp > ? ORDER BY id ASC", [twentyFourHoursAgo], (err, rows) => {
-    if (!err) send(ws, "history", { messages: rows });
+  // Use a JOIN to get user profile data for each message
+  const messageQuery = `
+    SELECT
+      m.id, m.userId, m.content, m.image, m.timestamp, m.readBy,
+      u.name AS username, u.gender, u.interests, u.bio
+    FROM messages AS m
+    INNER JOIN users AS u ON m.userId = u.id
+    ORDER BY m.id ASC
+  `;
+
+  db.all(messageQuery, [], (err, rows) => {
+    if (err) {
+      console.error("❌ Error loading message history:", err);
+      return;
+    }
+    const messages = rows.map((row) => {
+      row.readBy = row.readBy ? JSON.parse(row.readBy) : [];
+      return row;
+    });
+    send(ws, "history", { messages });
   });
 
-  db.all("SELECT * FROM broadcasts WHERE timestamp > ? ORDER BY id ASC", [twentyFourHoursAgo], (err, rows) => {
+  // Load all broadcasts
+  db.all("SELECT * FROM broadcasts ORDER BY id ASC", [], (err, rows) => {
     if (!err) send(ws, "broadcastHistory", { broadcasts: rows });
   });
 }
@@ -99,7 +116,6 @@ setInterval(() => {
 // ================== Connection Handling ==================
 wss.on("connection", (ws) => {
   let userId = null;
-  let username = null;
 
   ws.on("message", (msg) => {
     try {
@@ -107,7 +123,7 @@ wss.on("connection", (ws) => {
 
       if (data.type === "init") {
         userId = data.userId || randomUUID();
-        username = data.username || "User";
+        const username = data.username || "User";
 
         db.get("SELECT * FROM blocked WHERE userId = ?", [userId], (err, row) => {
           if (row) {
@@ -117,7 +133,7 @@ wss.on("connection", (ws) => {
             clients.set(ws, { id: userId, name: username });
             db.run(
               `INSERT OR REPLACE INTO users (id, name, gender, interests, bio) VALUES (?, ?, ?, ?, ?)`,
-              [userId, username, data.gender || "", data.interests || "", data.bio || ""]
+              [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
             );
             send(ws, "init", { userId, onlineUsers: getOnlineUsers() });
             loadHistory(ws);
@@ -126,10 +142,11 @@ wss.on("connection", (ws) => {
         });
       }
       
-      // --- NEW: Typing Indicator Logic ---
       else if (data.type === "typing") {
         if (!usersTyping.has(userId)) {
           usersTyping.set(userId, true);
+          // Retrieve username from client map before broadcasting
+          const username = clients.get(ws)?.name || "User";
           broadcast("typing", { userId, username });
         }
       } 
@@ -141,7 +158,6 @@ wss.on("connection", (ws) => {
         }
       }
 
-      // --- NEW: Read Receipts Logic ---
       else if (data.type === "messageRead") {
           const { messageId } = data;
           db.get("SELECT readBy FROM messages WHERE id = ?", [messageId], (err, row) => {
@@ -164,26 +180,35 @@ wss.on("connection", (ws) => {
 
       else if (data.type === "message") {
         const timestamp = Date.now();
-        db.run(
-          `INSERT INTO messages (userId, username, content, image, timestamp) VALUES (?, ?, ?, ?, ?)`,
-          [userId, username, data.content || "", data.image || null, timestamp],
-          function () {
-            const newMsg = {
-              id: this.lastID,
-              userId,
-              username,
-              content: data.content || "",
-              image: data.image || null,
-              timestamp,
-              readBy: JSON.stringify([]) // Initialize with an empty array
-            };
-            for (const client of wss.clients) {
-              if (client.readyState === WebSocket.OPEN) {
-                send(client, "message", newMsg);
-              }
+        db.get("SELECT name, gender, interests, bio FROM users WHERE id = ?", [userId], (err, userRow) => {
+            if (err || !userRow) {
+                console.error("User not found for message.");
+                return;
             }
-          }
-        );
+            db.run(
+              `INSERT INTO messages (userId, content, image, timestamp) VALUES (?, ?, ?, ?)`,
+              [userId, data.content || "", data.image || null, timestamp],
+              function () {
+                const newMsg = {
+                  id: this.lastID,
+                  userId,
+                  username: userRow.name,
+                  gender: userRow.gender,
+                  interests: userRow.interests,
+                  bio: userRow.bio,
+                  content: data.content || "",
+                  image: data.image || null,
+                  timestamp,
+                  readBy: []
+                };
+                for (const client of wss.clients) {
+                  if (client.readyState === WebSocket.OPEN) {
+                    send(client, "message", newMsg);
+                  }
+                }
+              }
+            );
+        });
       }
 
       else if (data.type === "broadcast" && data.admin === true) {
