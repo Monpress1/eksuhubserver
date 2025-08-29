@@ -1,131 +1,179 @@
 // server.js
-// WebSocket chat server with SQLite persistence, image support, and admin features.
+// WebSocket chat server with SQLite persistence, admin features, profiles, images, and broadcast support.
 
 const WebSocket = require("ws");
 const sqlite3 = require("sqlite3").verbose();
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("crypto");
 
-// --- Database Setup ---
-const db = new sqlite3.Database("./chat.db");
+// ================== Database Setup ==================
+const db = new sqlite3.Database("chat.db");
 
-// Initialize tables
 db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId TEXT,
-    username TEXT,
-    content TEXT,
-    type TEXT,
-    timestamp INTEGER
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS profiles (
-    userId TEXT PRIMARY KEY,
-    username TEXT,
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    name TEXT,
     gender TEXT,
     interests TEXT,
     bio TEXT
   )`);
 
+  db.run(`CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId TEXT,
+    username TEXT,
+    content TEXT,
+    image TEXT,
+    timestamp INTEGER
+  )`);
+
   db.run(`CREATE TABLE IF NOT EXISTS blocked (
-    userId TEXT PRIMARY KEY
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId TEXT UNIQUE
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS broadcasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT,
+    timestamp INTEGER
   )`);
 });
 
-// --- Server Setup ---
-const wss = new WebSocket.Server({ port: 8080 }, () => {
-  console.log("✅ WebSocket server running on ws://localhost:8080");
-});
+// ================== WebSocket Setup ==================
+const wss = new WebSocket.Server({ port: 8080 }, () =>
+  console.log("✅ WebSocket server running on ws://localhost:8080")
+);
 
-let clients = new Map(); // socket → userId
+let clients = new Map(); // ws -> { id, name }
 
-// --- Helper Functions ---
+// ================== Helpers ==================
 function send(ws, type, data) {
-  ws.send(JSON.stringify({ type, ...data }));
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type, ...data }));
+  }
 }
 
-function broadcast(type, data, exclude = null) {
-  const message = JSON.stringify({ type, ...data });
-  for (let [client, userId] of clients) {
-    if (client.readyState === WebSocket.OPEN && client !== exclude) {
-      client.send(message);
+// FIX: This broadcast function now excludes the sender
+function broadcast(type, data, senderWs = null) {
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client !== senderWs) {
+      client.send(JSON.stringify({ type, ...data }));
     }
   }
 }
 
-function saveMessage(userId, username, content, type) {
-  return new Promise((resolve, reject) => {
-    const timestamp = Date.now();
-    db.run(
-      `INSERT INTO messages (userId, username, content, type, timestamp) VALUES (?, ?, ?, ?, ?)`,
-      [userId, username, content, type, timestamp],
-      function (err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID, userId, username, content, type, timestamp });
-      }
-    );
+function loadHistory(ws) {
+  db.all("SELECT * FROM messages ORDER BY id ASC", [], (err, rows) => {
+    if (!err) send(ws, "history", { messages: rows });
+  });
+
+  db.all("SELECT * FROM broadcasts ORDER BY id ASC", [], (err, rows) => {
+    if (!err) send(ws, "broadcastHistory", { broadcasts: rows });
   });
 }
 
-// --- WebSocket Handlers ---
+function getOnlineUsers() {
+  return [...clients.values()].map(u => ({ id: u.id, name: u.name }));
+}
+
+// ================== Connection Handling ==================
 wss.on("connection", (ws) => {
-  const userId = uuidv4();
-  clients.set(ws, userId);
-  console.log(`🔗 New connection: ${userId}`);
+  let userId = null;
+  let username = null; // Store username to use later
 
-  // Send init data
-  db.all("SELECT * FROM messages ORDER BY id ASC LIMIT 50", (err, rows) => {
-    if (!err) send(ws, "init", { messages: rows, userId });
-  });
-
-  // Update online list
-  broadcast("online", { users: Array.from(clients.values()) });
-
-  ws.on("message", async (msg) => {
+  ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
-      if (!data.type) return;
 
-      switch (data.type) {
-        case "profile":
-          db.run(
-            `INSERT OR REPLACE INTO profiles (userId, username, gender, interests, bio) VALUES (?, ?, ?, ?, ?)`,
-            [userId, data.username, data.gender, data.interests, data.bio]
-          );
-          break;
+      // ==== First-time connection ====
+      if (data.type === "init") {
+        userId = data.userId || randomUUID();
+        username = data.username || "User"; // Store username here
 
-        case "message":
-          if (!data.content || !data.username) return;
+        db.get("SELECT * FROM blocked WHERE userId = ?", [userId], (err, row) => {
+          if (row) {
+            send(ws, "blocked", { reason: "You are banned." });
+            ws.close();
+          } else {
+            clients.set(ws, { id: userId, name: username });
+            db.run(
+              `INSERT OR REPLACE INTO users (id, name, gender, interests, bio) VALUES (?, ?, ?, ?, ?)`,
+              [userId, username, data.gender || "", data.interests || "", data.bio || ""]
+            );
 
-          const saved = await saveMessage(userId, data.username, data.content, "text");
-          // Send back to sender + broadcast to others
-          send(ws, "message", saved);
-          broadcast("message", saved, ws);
-          break;
-
-        case "image":
-          if (!data.content || !data.username) return;
-
-          const savedImg = await saveMessage(userId, data.username, data.content, "image");
-          send(ws, "image", savedImg);
-          broadcast("image", savedImg, ws);
-          break;
-
-        case "admin-broadcast":
-          if (data.secret === "admin123" && data.content) {
-            const savedAdmin = await saveMessage("ADMIN", "Admin", data.content, "admin");
-            broadcast("admin", savedAdmin);
+            send(ws, "init", { userId, onlineUsers: getOnlineUsers() });
+            loadHistory(ws);
+            broadcast("userJoined", { id: userId, name: username }, ws); // Broadcast to others
           }
-          break;
+        });
       }
+
+      // ==== Chat message ====
+      else if (data.type === "message") {
+        const timestamp = Date.now();
+        db.run(
+          `INSERT INTO messages (userId, username, content, image, timestamp) VALUES (?, ?, ?, ?, ?)`,
+          [userId, username, data.content || "", data.image || null, timestamp],
+          function () {
+            const newMsg = {
+              id: this.lastID,
+              userId,
+              username,
+              content: data.content || "",
+              image: data.image || null,
+              timestamp
+            };
+            // FIX: Broadcast to all clients, INCLUDING the sender
+            for (const client of wss.clients) {
+              if (client.readyState === WebSocket.OPEN) {
+                send(client, "message", newMsg);
+              }
+            }
+          }
+        );
+      }
+
+      // ==== Admin broadcast ====
+      else if (data.type === "broadcast" && data.admin === true) {
+        const timestamp = Date.now();
+        db.run(
+          `INSERT INTO broadcasts (content, timestamp) VALUES (?, ?)`,
+          [data.content, timestamp],
+          function () {
+            const newBroadcast = { id: this.lastID, content: data.content, timestamp };
+            broadcast("broadcast", newBroadcast);
+          }
+        );
+      }
+
+      // ==== Block user (admin) ====
+      else if (data.type === "blockUser" && data.admin === true) {
+        db.run("INSERT OR IGNORE INTO blocked (userId) VALUES (?)", [data.userId]);
+        for (const [client, info] of clients.entries()) {
+          if (info.id === data.userId) {
+            send(client, "blocked", { reason: "You were banned by admin." });
+            client.close();
+            clients.delete(client);
+          }
+        }
+      }
+
+      // ==== Request online users ====
+      else if (data.type === "getOnlineUsers") {
+        send(ws, "onlineUsers", { users: getOnlineUsers() });
+      }
+
     } catch (err) {
-      console.error("❌ Message error:", err);
+      console.error("❌ Error handling message:", err);
     }
   });
 
   ws.on("close", () => {
-    clients.delete(ws);
-    console.log(`❌ Disconnected: ${userId}`);
-    broadcast("online", { users: Array.from(clients.values()) });
+    if (userId) {
+      const user = clients.get(ws);
+      if (user) {
+        broadcast("userLeft", { id: user.id, name: user.name });
+        clients.delete(ws);
+      }
+    }
   });
 });
