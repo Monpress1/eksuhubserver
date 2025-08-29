@@ -4,7 +4,6 @@
 const WebSocket = require("ws");
 const sqlite3 = require("sqlite3").verbose();
 const { randomUUID } = require("crypto");
-const cron = require("node-cron"); // Required for scheduled tasks
 
 // ================== Database Setup ==================
 const db = new sqlite3.Database("chat.db");
@@ -67,7 +66,7 @@ function broadcast(type, data, senderWs = null) {
 }
 
 function loadHistory(ws) {
-  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
   db.all("SELECT * FROM messages WHERE timestamp > ? ORDER BY id ASC", [twentyFourHoursAgo], (err, rows) => {
     if (!err) send(ws, "history", { messages: rows });
   });
@@ -82,14 +81,20 @@ function getOnlineUsers() {
 }
 
 // ================== Automated Database Cleanup ==================
-cron.schedule("0 0 * * *", () => {
-  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-  console.log("⏰ Running scheduled database cleanup...");
-  db.run("DELETE FROM messages WHERE timestamp < ?", [twentyFourHoursAgo], (err) => {
-    if (err) console.error("❌ Error clearing old messages:", err);
-    else console.log("✅ Old messages cleared successfully.");
-  });
-});
+const ONE_DAY = 24 * 60 * 60 * 1000;
+
+setInterval(() => {
+    const twentyFourHoursAgo = Date.now() - ONE_DAY;
+    console.log("⏰ Running database cleanup via polling...");
+    db.run("DELETE FROM messages WHERE timestamp < ?", [twentyFourHoursAgo], (err) => {
+        if (err) console.error("❌ Error clearing old messages:", err);
+        else console.log("✅ Old messages cleared successfully.");
+    });
+    db.run("DELETE FROM broadcasts WHERE timestamp < ?", [twentyFourHoursAgo], (err) => {
+        if (err) console.error("❌ Error clearing old broadcasts:", err);
+        else console.log("✅ Old broadcasts cleared successfully.");
+    });
+}, ONE_DAY);
 
 // ================== Connection Handling ==================
 wss.on("connection", (ws) => {
@@ -148,7 +153,6 @@ wss.on("connection", (ws) => {
                   const updatedReadBy = JSON.stringify(readers);
                   db.run("UPDATE messages SET readBy = ? WHERE id = ?", [updatedReadBy, messageId]);
                   
-                  // Broadcast the update to all clients
                   for (const client of wss.clients) {
                       if (client.readyState === WebSocket.OPEN) {
                           send(client, "messageRead", { messageId, userId });
@@ -170,7 +174,8 @@ wss.on("connection", (ws) => {
               username,
               content: data.content || "",
               image: data.image || null,
-              timestamp
+              timestamp,
+              readBy: JSON.stringify([]) // Initialize with an empty array
             };
             for (const client of wss.clients) {
               if (client.readyState === WebSocket.OPEN) {
