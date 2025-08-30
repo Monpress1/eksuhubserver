@@ -64,7 +64,7 @@ function broadcast(type, data, senderWs = null) {
   }
 }
 
-function loadHistory(ws) {
+function loadHistory(ws, callback) {
   // Use a JOIN to get user profile data for each message
   const messageQuery = `
     SELECT
@@ -75,21 +75,26 @@ function loadHistory(ws) {
     ORDER BY m.id ASC
   `;
 
-  db.all(messageQuery, [], (err, rows) => {
+  db.all(messageQuery, [], (err, messageRows) => {
     if (err) {
       console.error("❌ Error loading message history:", err);
-      return;
+      return callback([]);
     }
-    const messages = rows.map((row) => {
+    const messages = messageRows.map((row) => {
       row.readBy = row.readBy ? JSON.parse(row.readBy) : [];
       return row;
     });
-    send(ws, "history", { messages });
-  });
 
-  // Load all broadcasts
-  db.all("SELECT * FROM broadcasts ORDER BY id ASC", [], (err, rows) => {
-    if (!err) send(ws, "broadcastHistory", { broadcasts: rows });
+    db.all("SELECT * FROM broadcasts ORDER BY id ASC", [], (err, broadcastRows) => {
+      const allHistory = messages.concat(broadcastRows.map(b => ({
+          ...b,
+          type: "broadcast",
+          userId: "admin", // Add a user ID for consistency
+          username: "Admin",
+          content: b.content
+      })));
+      callback(allHistory);
+    });
   });
 }
 
@@ -135,9 +140,22 @@ wss.on("connection", (ws) => {
               `INSERT OR REPLACE INTO users (id, name, gender, interests, bio) VALUES (?, ?, ?, ?, ?)`,
               [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
             );
-            send(ws, "init", { userId, onlineUsers: getOnlineUsers() });
-            loadHistory(ws);
-            broadcast("userJoined", { id: userId, name: username }, ws);
+            
+            // Wait for history to load before sending the initial data
+            loadHistory(ws, (history) => {
+                send(ws, "init", { 
+                    userId, 
+                    onlineUsers: getOnlineUsers(),
+                    history
+                });
+            });
+            
+            // Broadcast user joined status
+            broadcast("userStatus", { 
+                type: "userJoined",
+                id: userId, 
+                name: username 
+            }, ws);
           }
         });
       }
@@ -145,7 +163,6 @@ wss.on("connection", (ws) => {
       else if (data.type === "typing") {
         if (!usersTyping.has(userId)) {
           usersTyping.set(userId, true);
-          // Retrieve username from client map before broadcasting
           const username = clients.get(ws)?.name || "User";
           broadcast("typing", { userId, username });
         }
@@ -171,7 +188,7 @@ wss.on("connection", (ws) => {
                   
                   for (const client of wss.clients) {
                       if (client.readyState === WebSocket.OPEN) {
-                          send(client, "messageRead", { messageId, userId });
+                          send(client, "messageRead", { messageId, readerId: userId });
                       }
                   }
               }
@@ -240,6 +257,8 @@ wss.on("connection", (ws) => {
 
     } catch (err) {
       console.error("❌ Error handling message:", err);
+      // Log the raw message to see what caused the parse error
+      console.error("Malformed message:", msg);
     }
   });
 
@@ -247,7 +266,11 @@ wss.on("connection", (ws) => {
     if (userId) {
       const user = clients.get(ws);
       if (user) {
-        broadcast("userLeft", { id: user.id, name: user.name });
+        broadcast("userStatus", { 
+            type: "userLeft",
+            id: user.id, 
+            name: user.name 
+        });
         clients.delete(ws);
       }
     }
