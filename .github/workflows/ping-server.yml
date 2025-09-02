@@ -1,14 +1,14 @@
-name: Keep Render Server Awake
+name: Keep Render Server Awake (WebSocket)
 
 on:
-  push:                  # 🔹 Run instantly on commit
   schedule:
-    - cron: '*/2 * * * *'   # 🔹 runs every 2 minutes 
-  workflow_dispatch:     # 🔹 Allow manual trigger
+    - cron: '*/5 * * * *'  # Run every 5 minutes
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Render WebSocket server
-        run: curl -s -o /dev/null -w "%{http_code}" https://websocket-server-6jct.onrender.com
+        run: |
+          echo "Pinging server..."
+          curl --fail -A "GitHub Actions Cron Job" -s -o /dev/null -w "HTTP %{http_code}\n" https://websocket-server-6jct.onrender.com
