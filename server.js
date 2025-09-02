@@ -1,42 +1,68 @@
 // server.js
-// WebSocket chat server with SQLite persistence, admin features, profiles, images, and broadcast support.
+// WebSocket chat server with PostgreSQL persistence, admin features, profiles, images, and broadcast support.
 
 const WebSocket = require("ws");
-const sqlite3 = require("sqlite3").verbose();
 const { randomUUID } = require("crypto");
+const { Pool } = require("pg"); // Use the 'pg' library for PostgreSQL
 
 // ================== Database Setup ==================
-const db = new sqlite3.Database("chat.db");
-
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    gender TEXT,
-    interests TEXT,
-    bio TEXT
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId TEXT,
-    content TEXT,
-    image TEXT,
-    timestamp INTEGER,
-    readBy TEXT DEFAULT '[]'
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS blocked (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId TEXT UNIQUE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS broadcasts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    content TEXT,
-    timestamp INTEGER
-  )`);
+// Connect to the database using the DATABASE_URL environment variable
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false, // Required for Render's managed databases
+  },
 });
+
+async function setupDatabase() {
+  try {
+    const client = await pool.connect();
+
+    // PostgreSQL table creation syntax
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        gender TEXT,
+        interests TEXT,
+        bio TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        userId TEXT,
+        content TEXT,
+        image TEXT,
+        timestamp BIGINT,
+        readBy TEXT DEFAULT '[]'
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blocked (
+        id SERIAL PRIMARY KEY,
+        userId TEXT UNIQUE
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS broadcasts (
+        id SERIAL PRIMARY KEY,
+        content TEXT,
+        timestamp BIGINT
+      );
+    `);
+
+    console.log("✅ PostgreSQL tables ensured.");
+    client.release();
+  } catch (err) {
+    console.error("❌ Error setting up PostgreSQL tables:", err);
+  }
+}
+
+setupDatabase(); // Run the async setup function
 
 // ================== WebSocket Setup ==================
 const wss = new WebSocket.Server({ port: 8080 }, () =>
@@ -64,65 +90,69 @@ function broadcast(type, data, senderWs = null) {
   }
 }
 
-function loadHistory(ws, callback) {
-  // Use a JOIN to get user profile data for each message
-  const messageQuery = `
-    SELECT
-      m.id, m.userId, m.content, m.image, m.timestamp, m.readBy,
-      u.name AS username, u.gender, u.interests, u.bio
-    FROM messages AS m
-    INNER JOIN users AS u ON m.userId = u.id
-    ORDER BY m.id ASC
-  `;
-
-  db.all(messageQuery, [], (err, messageRows) => {
-    if (err) {
-      console.error("❌ Error loading message history:", err);
-      return callback([]);
-    }
-    const messages = messageRows.map((row) => {
+async function loadHistory(ws, callback) {
+  try {
+    const messageQuery = `
+      SELECT
+        m.id, m.userId, m.content, m.image, m.timestamp, m.readBy,
+        u.name AS username, u.gender, u.interests, u.bio
+      FROM messages AS m
+      INNER JOIN users AS u ON m.userId = u.id
+      ORDER BY m.id ASC;
+    `;
+    const messagesResult = await pool.query(messageQuery);
+    const messages = messagesResult.rows.map((row) => {
       row.readBy = row.readBy ? JSON.parse(row.readBy) : [];
       return row;
     });
 
-    db.all("SELECT * FROM broadcasts ORDER BY id ASC", [], (err, broadcastRows) => {
-      const allHistory = messages.concat(broadcastRows.map(b => ({
-          ...b,
-          type: "broadcast",
-          userId: "admin", // Add a user ID for consistency
-          username: "Admin",
-          content: b.content
-      })));
-      callback(allHistory);
-    });
-  });
+    const broadcastResult = await pool.query("SELECT * FROM broadcasts ORDER BY id ASC;");
+    const allHistory = messages.concat(
+      broadcastResult.rows.map((b) => ({
+        ...b,
+        type: "broadcast",
+        userId: "admin",
+        username: "Admin",
+        content: b.content,
+      }))
+    );
+    callback(allHistory);
+  } catch (err) {
+    console.error("❌ Error loading message history:", err);
+    callback([]);
+  }
 }
 
 function getOnlineUsers() {
-  return [...clients.values()].map(u => ({ id: u.id, name: u.name }));
+  return [...clients.values()].map((u) => ({ id: u.id, name: u.name }));
 }
 
 // ================== Automated Database Cleanup ==================
 const ONE_DAY = 24 * 60 * 60 * 1000;
 
-setInterval(() => {
-    const twentyFourHoursAgo = Date.now() - ONE_DAY;
-    console.log("⏰ Running database cleanup via polling...");
-    db.run("DELETE FROM messages WHERE timestamp < ?", [twentyFourHoursAgo], (err) => {
-        if (err) console.error("❌ Error clearing old messages:", err);
-        else console.log("✅ Old messages cleared successfully.");
-    });
-    db.run("DELETE FROM broadcasts WHERE timestamp < ?", [twentyFourHoursAgo], (err) => {
-        if (err) console.error("❌ Error clearing old broadcasts:", err);
-        else console.log("✅ Old broadcasts cleared successfully.");
-    });
+setInterval(async () => {
+  const twentyFourHoursAgo = Date.now() - ONE_DAY;
+  console.log("⏰ Running database cleanup via polling...");
+  try {
+    await pool.query("DELETE FROM messages WHERE timestamp < $1", [
+      twentyFourHoursAgo,
+    ]);
+    console.log("✅ Old messages cleared successfully.");
+
+    await pool.query("DELETE FROM broadcasts WHERE timestamp < $1", [
+      twentyFourHoursAgo,
+    ]);
+    console.log("✅ Old broadcasts cleared successfully.");
+  } catch (err) {
+    console.error("❌ Error clearing old data:", err);
+  }
 }, ONE_DAY);
 
 // ================== Connection Handling ==================
 wss.on("connection", (ws) => {
   let userId = null;
 
-  ws.on("message", (msg) => {
+  ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg);
 
@@ -130,118 +160,108 @@ wss.on("connection", (ws) => {
         userId = data.userId || randomUUID();
         const username = data.username || "User";
 
-        db.get("SELECT * FROM blocked WHERE userId = ?", [userId], (err, row) => {
-          if (row) {
-            send(ws, "blocked", { reason: "You are banned." });
-            ws.close();
-          } else {
-            clients.set(ws, { id: userId, name: username });
-            db.run(
-              `INSERT OR REPLACE INTO users (id, name, gender, interests, bio) VALUES (?, ?, ?, ?, ?)`,
-              [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
-            );
-            
-            // Wait for history to load before sending the initial data
-            loadHistory(ws, (history) => {
-                send(ws, "init", { 
-                    userId, 
-                    onlineUsers: getOnlineUsers(),
-                    history
-                });
+        const { rowCount } = await pool.query("SELECT 1 FROM blocked WHERE userId = $1", [userId]);
+        if (rowCount > 0) {
+          send(ws, "blocked", { reason: "You are banned." });
+          ws.close();
+        } else {
+          clients.set(ws, { id: userId, name: username });
+          await pool.query(
+            `INSERT INTO users (id, name, gender, interests, bio) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, gender = EXCLUDED.gender, interests = EXCLUDED.interests, bio = EXCLUDED.bio;`,
+            [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
+          );
+
+          loadHistory(ws, (history) => {
+            send(ws, "init", {
+              userId,
+              onlineUsers: getOnlineUsers(),
+              history,
             });
-            
-            // Broadcast user joined status
-            broadcast("userStatus", { 
-                type: "userJoined",
-                id: userId, 
-                name: username 
-            }, ws);
-          }
-        });
-      }
-      
-      else if (data.type === "typing") {
+          });
+
+          broadcast(
+            "userStatus",
+            {
+              type: "userJoined",
+              id: userId,
+              name: username,
+            },
+            ws
+          );
+        }
+      } else if (data.type === "typing") {
         if (!usersTyping.has(userId)) {
           usersTyping.set(userId, true);
           const username = clients.get(ws)?.name || "User";
           broadcast("typing", { userId, username });
         }
-      } 
-      
-      else if (data.type === "stopTyping") {
+      } else if (data.type === "stopTyping") {
         if (usersTyping.has(userId)) {
           usersTyping.delete(userId);
           broadcast("stopTyping", { userId });
         }
-      }
+      } else if (data.type === "messageRead") {
+        const { messageId } = data;
+        const { rows } = await pool.query("SELECT readBy FROM messages WHERE id = $1", [messageId]);
+        if (rows.length > 0) {
+          const row = rows[0];
+          let readers = JSON.parse(row.readBy);
+          if (!readers.includes(userId)) {
+            readers.push(userId);
+            const updatedReadBy = JSON.stringify(readers);
+            await pool.query("UPDATE messages SET readBy = $1 WHERE id = $2", [
+              updatedReadBy,
+              messageId,
+            ]);
 
-      else if (data.type === "messageRead") {
-          const { messageId } = data;
-          db.get("SELECT readBy FROM messages WHERE id = ?", [messageId], (err, row) => {
-              if (err || !row) return;
-
-              let readers = JSON.parse(row.readBy);
-              if (!readers.includes(userId)) {
-                  readers.push(userId);
-                  const updatedReadBy = JSON.stringify(readers);
-                  db.run("UPDATE messages SET readBy = ? WHERE id = ?", [updatedReadBy, messageId]);
-                  
-                  for (const client of wss.clients) {
-                      if (client.readyState === WebSocket.OPEN) {
-                          send(client, "messageRead", { messageId, readerId: userId });
-                      }
-                  }
+            for (const client of wss.clients) {
+              if (client.readyState === WebSocket.OPEN) {
+                send(client, "messageRead", { messageId, readerId: userId });
               }
-          });
-      }
-
-      else if (data.type === "message") {
-        const timestamp = Date.now();
-        db.get("SELECT name, gender, interests, bio FROM users WHERE id = ?", [userId], (err, userRow) => {
-            if (err || !userRow) {
-                console.error("User not found for message.");
-                return;
             }
-            db.run(
-              `INSERT INTO messages (userId, content, image, timestamp) VALUES (?, ?, ?, ?)`,
-              [userId, data.content || "", data.image || null, timestamp],
-              function () {
-                const newMsg = {
-                  id: this.lastID,
-                  userId,
-                  username: userRow.name,
-                  gender: userRow.gender,
-                  interests: userRow.interests,
-                  bio: userRow.bio,
-                  content: data.content || "",
-                  image: data.image || null,
-                  timestamp,
-                  readBy: []
-                };
-                for (const client of wss.clients) {
-                  if (client.readyState === WebSocket.OPEN) {
-                    send(client, "message", newMsg);
-                  }
-                }
-              }
-            );
-        });
-      }
-
-      else if (data.type === "broadcast" && data.admin === true) {
-        const timestamp = Date.now();
-        db.run(
-          `INSERT INTO broadcasts (content, timestamp) VALUES (?, ?)`,
-          [data.content, timestamp],
-          function () {
-            const newBroadcast = { id: this.lastID, content: data.content, timestamp };
-            broadcast("broadcast", newBroadcast);
           }
+        }
+      } else if (data.type === "message") {
+        const timestamp = Date.now();
+        const { rows } = await pool.query("SELECT name, gender, interests, bio FROM users WHERE id = $1", [userId]);
+        if (rows.length === 0) {
+          console.error("User not found for message.");
+          return;
+        }
+        const userRow = rows[0];
+        const result = await pool.query(
+          `INSERT INTO messages (userId, content, image, timestamp) VALUES ($1, $2, $3, $4) RETURNING id`,
+          [userId, data.content || "", data.image || null, timestamp]
         );
-      }
-
-      else if (data.type === "blockUser" && data.admin === true) {
-        db.run("INSERT OR IGNORE INTO blocked (userId) VALUES (?)", [data.userId]);
+        const newMsg = {
+          id: result.rows[0].id,
+          userId,
+          username: userRow.name,
+          gender: userRow.gender,
+          interests: userRow.interests,
+          bio: userRow.bio,
+          content: data.content || "",
+          image: data.image || null,
+          timestamp,
+          readBy: [],
+        };
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) {
+            send(client, "message", newMsg);
+          }
+        }
+      } else if (data.type === "broadcast" && data.admin === true) {
+        const timestamp = Date.now();
+        const result = await pool.query(
+          `INSERT INTO broadcasts (content, timestamp) VALUES ($1, $2) RETURNING id`,
+          [data.content, timestamp]
+        );
+        const newBroadcast = { id: result.rows[0].id, content: data.content, timestamp };
+        broadcast("broadcast", newBroadcast);
+      } else if (data.type === "blockUser" && data.admin === true) {
+        await pool.query("INSERT INTO blocked (userId) VALUES ($1) ON CONFLICT (userId) DO NOTHING", [
+          data.userId,
+        ]);
         for (const [client, info] of clients.entries()) {
           if (info.id === data.userId) {
             send(client, "blocked", { reason: "You were banned by admin." });
@@ -249,15 +269,11 @@ wss.on("connection", (ws) => {
             clients.delete(client);
           }
         }
-      }
-
-      else if (data.type === "getOnlineUsers") {
+      } else if (data.type === "getOnlineUsers") {
         send(ws, "onlineUsers", { users: getOnlineUsers() });
       }
-
     } catch (err) {
       console.error("❌ Error handling message:", err);
-      // Log the raw message to see what caused the parse error
       console.error("Malformed message:", msg);
     }
   });
@@ -266,13 +282,18 @@ wss.on("connection", (ws) => {
     if (userId) {
       const user = clients.get(ws);
       if (user) {
-        broadcast("userStatus", { 
+        broadcast(
+          "userStatus",
+          {
             type: "userLeft",
-            id: user.id, 
-            name: user.name 
-        });
+            id: user.id,
+            name: user.name,
+          },
+          ws
+        );
         clients.delete(ws);
       }
     }
   });
 });
+
