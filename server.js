@@ -103,6 +103,7 @@ async function loadHistory(ws, callback) {
     const messagesResult = await pool.query(messageQuery);
     const messages = messagesResult.rows.map((row) => {
       row.readBy = row.readBy ? JSON.parse(row.readBy) : [];
+      row.timestamp = new Date(Number(row.timestamp)).toISOString();
       return row;
     });
 
@@ -114,6 +115,7 @@ async function loadHistory(ws, callback) {
         userId: "admin",
         username: "Admin",
         content: b.content,
+        timestamp: new Date(Number(b.timestamp)).toISOString(),
       }))
     );
     callback(allHistory);
@@ -154,7 +156,8 @@ wss.on("connection", (ws) => {
 
   ws.on("message", async (msg) => {
     try {
-      const data = JSON.parse(msg);
+      const messageString = typeof msg === 'string' ? msg : msg.toString('utf8');
+      const data = JSON.parse(messageString);
 
       if (data.type === "init") {
         userId = data.userId || randomUUID();
@@ -172,6 +175,7 @@ wss.on("connection", (ws) => {
           );
 
           loadHistory(ws, (history) => {
+            // Include the current user's ID in the init payload
             send(ws, "init", {
               userId,
               onlineUsers: getOnlineUsers(),
@@ -242,7 +246,7 @@ wss.on("connection", (ws) => {
           bio: userRow.bio,
           content: data.content || "",
           image: data.image || null,
-          timestamp,
+          timestamp: new Date(timestamp).toISOString(),
           readBy: [],
         };
         for (const client of wss.clients) {
@@ -256,7 +260,7 @@ wss.on("connection", (ws) => {
           `INSERT INTO broadcasts (content, timestamp) VALUES ($1, $2) RETURNING id`,
           [data.content, timestamp]
         );
-        const newBroadcast = { id: result.rows[0].id, content: data.content, timestamp };
+        const newBroadcast = { id: result.rows[0].id, content: data.content, timestamp: new Date(timestamp).toISOString() };
         broadcast("broadcast", newBroadcast);
       } else if (data.type === "blockUser" && data.admin === true) {
         await pool.query("INSERT INTO blocked (userId) VALUES ($1) ON CONFLICT (userId) DO NOTHING", [
@@ -296,4 +300,3 @@ wss.on("connection", (ws) => {
     }
   });
 });
-
