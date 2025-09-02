@@ -1,0 +1,12 @@
+name: Keep Render Server Awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the server
+        run: curl https://websocket-server-6jct.onrender.com
