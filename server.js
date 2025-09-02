@@ -3,7 +3,7 @@
 
 const WebSocket = require("ws");
 const { randomUUID } = require("crypto");
-const { Pool } = require("pg"); // Use the 'pg' library for PostgreSQL
+const { Pool } = require("pg");
 
 // ================== Database Setup ==================
 const pool = new Pool({
@@ -80,21 +80,30 @@ function broadcast(type, data, senderWs = null) {
   }
 }
 
-async function loadHistory(ws, callback) {
+async function loadHistory(ws, userId, callback) {
   try {
     const messageQuery = `
       SELECT
-        m.id, m.userId, m.content, m.image, m.timestamp, m.readBy,
+        m.id, m."userId" AS "userId", m.content, m.image, m.timestamp, m."readBy" AS "readBy",
         u.name AS username, u.gender, u.interests, u.bio
       FROM messages AS m
-      INNER JOIN users AS u ON m.userId = u.id
+      INNER JOIN users AS u ON m."userId" = u.id
       ORDER BY m.id ASC;
     `;
     const messagesResult = await pool.query(messageQuery);
     const messages = messagesResult.rows.map((row) => {
-      row.readBy = row.readBy ? JSON.parse(row.readBy) : [];
-      row.timestamp = new Date(Number(row.timestamp)).toISOString();
-      return row;
+      let readers = [];
+      try {
+        readers = row.readBy ? JSON.parse(row.readBy) : [];
+      } catch (e) {
+        readers = [];
+      }
+      return {
+        ...row,
+        readBy: Array.isArray(readers) ? readers : [],
+        timestamp: new Date(Number(row.timestamp)).toISOString(),
+        isOwn: row.userId === userId,
+      };
     });
 
     const broadcastResult = await pool.query("SELECT * FROM broadcasts ORDER BY id ASC;");
@@ -106,6 +115,7 @@ async function loadHistory(ws, callback) {
         username: "Admin",
         content: b.content,
         timestamp: new Date(Number(b.timestamp)).toISOString(),
+        isOwn: false,
       }))
     );
     callback(allHistory);
@@ -169,9 +179,8 @@ wss.on("connection", (ws) => {
             [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
           );
 
-          // Use Promise.all to load both history and all users concurrently
           const [history, allUsers] = await Promise.all([
-            new Promise(resolve => loadHistory(ws, resolve)),
+            new Promise(resolve => loadHistory(ws, userId, resolve)),
             getAllUsers(),
           ]);
 
@@ -179,7 +188,7 @@ wss.on("connection", (ws) => {
             userId,
             onlineUsers: getOnlineUsers(),
             history,
-            allUsers, // Send all user profiles to the client
+            allUsers,
           });
 
           broadcast(
@@ -205,14 +214,22 @@ wss.on("connection", (ws) => {
         }
       } else if (data.type === "messageRead") {
         const { messageId } = data;
-        const { rows } = await pool.query("SELECT readBy FROM messages WHERE id = $1", [messageId]);
+        const { rows } = await pool.query("SELECT \"readBy\" FROM messages WHERE id = $1", [messageId]);
         if (rows.length > 0) {
           const row = rows[0];
-          let readers = JSON.parse(row.readBy);
+          let readers;
+          try {
+            readers = row.readBy ? JSON.parse(row.readBy) : [];
+          } catch {
+            readers = [];
+          }
+          if (!Array.isArray(readers)) {
+            readers = [];
+          }
           if (!readers.includes(userId)) {
             readers.push(userId);
             const updatedReadBy = JSON.stringify(readers);
-            await pool.query("UPDATE messages SET readBy = $1 WHERE id = $2", [updatedReadBy, messageId]);
+            await pool.query("UPDATE messages SET \"readBy\" = $1 WHERE id = $2", [updatedReadBy, messageId]);
             for (const client of wss.clients) {
               if (client.readyState === WebSocket.OPEN) {
                 send(client, "messageRead", { messageId, readerId: userId });
@@ -229,7 +246,7 @@ wss.on("connection", (ws) => {
         }
         const userRow = rows[0];
         const result = await pool.query(
-          `INSERT INTO messages (userId, content, image, timestamp) VALUES ($1, $2, $3, $4) RETURNING id`,
+          `INSERT INTO messages ("userId", content, image, timestamp) VALUES ($1, $2, $3, $4) RETURNING id`,
           [userId, data.content || "", data.image || null, timestamp]
         );
         const newMsg = {
@@ -246,7 +263,8 @@ wss.on("connection", (ws) => {
         };
         for (const client of wss.clients) {
           if (client.readyState === WebSocket.OPEN) {
-            send(client, "message", newMsg);
+            const isOwn = clients.get(client)?.id === userId;
+            send(client, "message", { ...newMsg, isOwn });
           }
         }
       } else if (data.type === "broadcast" && data.admin === true) {
@@ -260,9 +278,9 @@ wss.on("connection", (ws) => {
           content: data.content,
           timestamp: new Date(timestamp).toISOString(),
         };
-        broadcast("broadcast", newBroadcast);
+        broadcast("broadcast", { ...newBroadcast, isOwn: false });
       } else if (data.type === "blockUser" && data.admin === true) {
-        await pool.query("INSERT INTO blocked (userId) VALUES ($1) ON CONFLICT (userId) DO NOTHING", [userId]);
+        await pool.query("INSERT INTO blocked (\"userId\") VALUES ($1) ON CONFLICT (\"userId\") DO NOTHING", [data.userId]);
         for (const [client, info] of clients.entries()) {
           if (info.id === data.userId) {
             send(client, "blocked", { reason: "You were banned by admin." });
