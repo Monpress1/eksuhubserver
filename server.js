@@ -84,10 +84,10 @@ async function loadHistory(ws, userId, callback) {
   try {
     const messageQuery = `
       SELECT
-        m.id, m."userId" AS "userId", m.content, m.image, m.timestamp, m."readBy" AS "readBy",
+        m.id, m.userid AS "userId", m.content, m.image, m.timestamp, m.readby AS "readBy",
         u.name AS username, u.gender, u.interests, u.bio
       FROM messages AS m
-      INNER JOIN users AS u ON m."userId" = u.id
+      INNER JOIN users AS u ON m.userid = u.id
       ORDER BY m.id ASC;
     `;
     const messagesResult = await pool.query(messageQuery);
@@ -168,7 +168,7 @@ wss.on("connection", (ws) => {
         userId = data.userId || randomUUID();
         const username = data.username || "User";
 
-        const { rowCount } = await pool.query("SELECT 1 FROM blocked WHERE userId = $1", [userId]);
+        const { rowCount } = await pool.query("SELECT 1 FROM blocked WHERE userid = $1", [userId]);
         if (rowCount > 0) {
           send(ws, "blocked", { reason: "You are banned." });
           ws.close();
@@ -178,7 +178,7 @@ wss.on("connection", (ws) => {
             `INSERT INTO users (id, name, gender, interests, bio) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, gender = EXCLUDED.gender, interests = EXCLUDED.interests, bio = EXCLUDED.bio;`,
             [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
           );
-
+          
           const [history, allUsers] = await Promise.all([
             new Promise(resolve => loadHistory(ws, userId, resolve)),
             getAllUsers(),
@@ -214,12 +214,12 @@ wss.on("connection", (ws) => {
         }
       } else if (data.type === "messageRead") {
         const { messageId } = data;
-        const { rows } = await pool.query("SELECT \"readBy\" FROM messages WHERE id = $1", [messageId]);
+        const { rows } = await pool.query("SELECT readby FROM messages WHERE id = $1", [messageId]);
         if (rows.length > 0) {
           const row = rows[0];
           let readers;
           try {
-            readers = row.readBy ? JSON.parse(row.readBy) : [];
+            readers = row.readby ? JSON.parse(row.readby) : [];
           } catch {
             readers = [];
           }
@@ -229,7 +229,7 @@ wss.on("connection", (ws) => {
           if (!readers.includes(userId)) {
             readers.push(userId);
             const updatedReadBy = JSON.stringify(readers);
-            await pool.query("UPDATE messages SET \"readBy\" = $1 WHERE id = $2", [updatedReadBy, messageId]);
+            await pool.query("UPDATE messages SET readby = $1 WHERE id = $2", [updatedReadBy, messageId]);
             for (const client of wss.clients) {
               if (client.readyState === WebSocket.OPEN) {
                 send(client, "messageRead", { messageId, readerId: userId });
@@ -246,7 +246,7 @@ wss.on("connection", (ws) => {
         }
         const userRow = rows[0];
         const result = await pool.query(
-          `INSERT INTO messages ("userId", content, image, timestamp) VALUES ($1, $2, $3, $4) RETURNING id`,
+          `INSERT INTO messages (userid, content, image, timestamp) VALUES ($1, $2, $3, $4) RETURNING id`,
           [userId, data.content || "", data.image || null, timestamp]
         );
         const newMsg = {
@@ -280,7 +280,7 @@ wss.on("connection", (ws) => {
         };
         broadcast("broadcast", { ...newBroadcast, isOwn: false });
       } else if (data.type === "blockUser" && data.admin === true) {
-        await pool.query("INSERT INTO blocked (\"userId\") VALUES ($1) ON CONFLICT (\"userId\") DO NOTHING", [data.userId]);
+        await pool.query("INSERT INTO blocked (userid) VALUES ($1) ON CONFLICT (userid) DO NOTHING", [data.userId]);
         for (const [client, info] of clients.entries()) {
           if (info.id === data.userId) {
             send(client, "blocked", { reason: "You were banned by admin." });
