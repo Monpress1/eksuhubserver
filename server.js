@@ -6,19 +6,16 @@ const { randomUUID } = require("crypto");
 const { Pool } = require("pg"); // Use the 'pg' library for PostgreSQL
 
 // ================== Database Setup ==================
-// Connect to the database using the DATABASE_URL environment variable
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false, // Required for Render's managed databases
+    rejectUnauthorized: false,
   },
 });
 
 async function setupDatabase() {
   try {
     const client = await pool.connect();
-
-    // PostgreSQL table creation syntax
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -28,7 +25,6 @@ async function setupDatabase() {
         bio TEXT
       );
     `);
-
     await client.query(`
       CREATE TABLE IF NOT EXISTS messages (
         id SERIAL PRIMARY KEY,
@@ -39,14 +35,12 @@ async function setupDatabase() {
         readBy TEXT DEFAULT '[]'
       );
     `);
-
     await client.query(`
       CREATE TABLE IF NOT EXISTS blocked (
         id SERIAL PRIMARY KEY,
         userId TEXT UNIQUE
       );
     `);
-
     await client.query(`
       CREATE TABLE IF NOT EXISTS broadcasts (
         id SERIAL PRIMARY KEY,
@@ -54,24 +48,20 @@ async function setupDatabase() {
         timestamp BIGINT
       );
     `);
-
     console.log("✅ PostgreSQL tables ensured.");
     client.release();
   } catch (err) {
     console.error("❌ Error setting up PostgreSQL tables:", err);
   }
 }
-
-setupDatabase(); // Run the async setup function
+setupDatabase();
 
 // ================== WebSocket Setup ==================
 const wss = new WebSocket.Server({ port: 8080 }, () =>
   console.log("✅ WebSocket server running on ws://localhost:8080")
 );
 
-let clients = new Map(); // ws -> { id, name }
-
-// --- In-memory state for typing indicators ---
+let clients = new Map();
 const usersTyping = new Map();
 const TYPING_TIMEOUT = 3000;
 
@@ -125,6 +115,16 @@ async function loadHistory(ws, callback) {
   }
 }
 
+async function getAllUsers() {
+  try {
+    const { rows } = await pool.query("SELECT id, name, gender, interests, bio FROM users");
+    return rows;
+  } catch (err) {
+    console.error("❌ Error loading user profiles:", err);
+    return [];
+  }
+}
+
 function getOnlineUsers() {
   return [...clients.values()].map((u) => ({ id: u.id, name: u.name }));
 }
@@ -136,14 +136,9 @@ setInterval(async () => {
   const twentyFourHoursAgo = Date.now() - ONE_DAY;
   console.log("⏰ Running database cleanup via polling...");
   try {
-    await pool.query("DELETE FROM messages WHERE timestamp < $1", [
-      twentyFourHoursAgo,
-    ]);
+    await pool.query("DELETE FROM messages WHERE timestamp < $1", [twentyFourHoursAgo]);
     console.log("✅ Old messages cleared successfully.");
-
-    await pool.query("DELETE FROM broadcasts WHERE timestamp < $1", [
-      twentyFourHoursAgo,
-    ]);
+    await pool.query("DELETE FROM broadcasts WHERE timestamp < $1", [twentyFourHoursAgo]);
     console.log("✅ Old broadcasts cleared successfully.");
   } catch (err) {
     console.error("❌ Error clearing old data:", err);
@@ -174,13 +169,17 @@ wss.on("connection", (ws) => {
             [userId, username, data.gender || "N/A", data.interests || "N/A", data.bio || ""]
           );
 
-          loadHistory(ws, (history) => {
-            // Include the current user's ID in the init payload
-            send(ws, "init", {
-              userId,
-              onlineUsers: getOnlineUsers(),
-              history,
-            });
+          // Use Promise.all to load both history and all users concurrently
+          const [history, allUsers] = await Promise.all([
+            new Promise(resolve => loadHistory(ws, resolve)),
+            getAllUsers(),
+          ]);
+
+          send(ws, "init", {
+            userId,
+            onlineUsers: getOnlineUsers(),
+            history,
+            allUsers, // Send all user profiles to the client
           });
 
           broadcast(
@@ -213,11 +212,7 @@ wss.on("connection", (ws) => {
           if (!readers.includes(userId)) {
             readers.push(userId);
             const updatedReadBy = JSON.stringify(readers);
-            await pool.query("UPDATE messages SET readBy = $1 WHERE id = $2", [
-              updatedReadBy,
-              messageId,
-            ]);
-
+            await pool.query("UPDATE messages SET readBy = $1 WHERE id = $2", [updatedReadBy, messageId]);
             for (const client of wss.clients) {
               if (client.readyState === WebSocket.OPEN) {
                 send(client, "messageRead", { messageId, readerId: userId });
@@ -260,12 +255,14 @@ wss.on("connection", (ws) => {
           `INSERT INTO broadcasts (content, timestamp) VALUES ($1, $2) RETURNING id`,
           [data.content, timestamp]
         );
-        const newBroadcast = { id: result.rows[0].id, content: data.content, timestamp: new Date(timestamp).toISOString() };
+        const newBroadcast = {
+          id: result.rows[0].id,
+          content: data.content,
+          timestamp: new Date(timestamp).toISOString(),
+        };
         broadcast("broadcast", newBroadcast);
       } else if (data.type === "blockUser" && data.admin === true) {
-        await pool.query("INSERT INTO blocked (userId) VALUES ($1) ON CONFLICT (userId) DO NOTHING", [
-          data.userId,
-        ]);
+        await pool.query("INSERT INTO blocked (userId) VALUES ($1) ON CONFLICT (userId) DO NOTHING", [userId]);
         for (const [client, info] of clients.entries()) {
           if (info.id === data.userId) {
             send(client, "blocked", { reason: "You were banned by admin." });
